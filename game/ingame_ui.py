@@ -155,6 +155,10 @@ class InGameUI:
         self._hovermousepos = (0, 0)
         self.focusview = FocusTreeView()
         self.pausemenuopen = False
+        self.active_left_tab = None
+        self.warprogressopen = False
+        self._warprogressdata = {}
+        self.actionwarprogress = "warprogress"
 
         self._flags = self._load_flags()
 
@@ -245,6 +249,7 @@ class InGameUI:
                 self._countrymenutarget
                 or self._selectedtroopentries
                 or self.bottom_buttons.selected == "RECRUIT"
+                or self.active_left_tab == "COMBAT"
             )
 
         left_w = self.leftbar_width if show_left else 0
@@ -300,6 +305,7 @@ class InGameUI:
         menu_y = max(0, (window_height - menu_h) // 2)
         self._pausemenu_rect = pygame.Rect(menu_x, menu_y, menu_w, menu_h)
         self._pausequit_rect = pygame.Rect(menu_x + (menu_w - 150) // 2, menu_y + menu_h - 52, 150, 40)
+        self._war_progress_rect = pygame.Rect(content_x, content_y + 40, content_w, 34)
 
     def setwindowsize(self, window_size):
         self.window_size = window_size
@@ -328,6 +334,7 @@ class InGameUI:
         mouseposition,
         troopbadgelist,
         focusview=None,
+        warprogressdata=None,
     ):
         self.gamephase = gamephase
         self.pendingcountry = pendingcountry
@@ -347,6 +354,8 @@ class InGameUI:
         if focusview is not None:
             self.focusview.setdata(focusview)
         # reflow after state changes (tab visibility depends on selection/menu)
+        if warprogressdata is not None:
+            self._warprogressdata = warprogressdata
         self.applylayout()
 
         # cache active manpower (sum troops controlled by player) only when inputs change
@@ -372,6 +381,9 @@ class InGameUI:
     def process_event(self, event):
 
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            if self.warprogressopen:
+                self.warprogressopen = False
+                return None
             self.pausemenuopen = not self.pausemenuopen
             return self.actionpausemenu
 
@@ -395,6 +407,9 @@ class InGameUI:
 
         for item, rect in (self.leftbar.item_rects or {}).items():
             if rect.collidepoint(pos):
+
+                self.active_left_tab = item
+                self.applylayout()
                 if item == "FOCUS TREE":
                     self.focusview.toggleview()
                     return self.actiontogglefocuspanel
@@ -403,6 +418,7 @@ class InGameUI:
         # bottom tabs
         for item, rect in (self.bottom_buttons.item_rects or {}).items():
             if rect.collidepoint(pos):
+        
                 self.bottom_buttons.set_selected(item)
                 return None
 
@@ -421,6 +437,11 @@ class InGameUI:
             return None
 
         # right panel: recruit action only visible in RECRUIT tab
+
+        if self.active_left_tab == "COMBAT" and not self._countrymenutarget:
+            if self._war_progress_rect.collidepoint(pos):
+                self.warprogressopen = not self.warprogressopen
+                return self.actionwarprogress
         if selected_tab == "RECRUIT":
             if self._recruit_action_rect.collidepoint(pos):
                 if self.recruitenabled:
@@ -439,10 +460,12 @@ class InGameUI:
                 if self._frontline_rect.collidepoint(pos):
                     return self.actionfrontline
 
-        return None
-
+            return None
+       
     def ispointeroverui(self, mouseposition):
-        # reserve bars and action buttons as UI
+        if self.warprogressopen:
+            return True
+       
         if self.focusview.pointerover(mouseposition):
             return True
         if self._endturn_rect.collidepoint(mouseposition):
@@ -492,10 +515,58 @@ class InGameUI:
                 selected = self.font.render(f"Selected: {self.pendingcountry}", True, (230, 230, 230))
                 surface.blit(selected, (self._choose_rect.x, self._choose_rect.y - 22))
 
+
+                
+        if self.warprogressopen:
+            popup_w, popup_h = 420, 220
+            popup_rect = pygame.Rect(0, 0, popup_w, popup_h)
+            popup_rect.center = surface.get_rect().center
+
+            overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 120))
+            surface.blit(overlay, (0, 0))
+
+            pygame.draw.rect(surface, (28, 28, 28), popup_rect, border_radius=4)
+            pygame.draw.rect(surface, (25, 25, 25), popup_rect, 1, border_radius=4)
+
+            title = self.title_font.render("WAR PROGRESS", True, (230, 230, 230))
+            surface.blit(title, title.get_rect(center=(popup_rect.centerx, popup_rect.y + 30)))
+
+            data = self._warprogressdata or {}
+            aggressor = data.get("aggressor")
+            defender = data.get("defender") 
+            progress = data.get("progress")
+
+            y = popup_rect.y + 70
+            line_gap = 28
+
+            if aggressor and defender and progress is not None:
+                lines = [
+                    f"Aggressor: {aggressor}",
+                    f"Defender: {defender}",
+                    f"Territory Occupied: {float(progress):.1f}%",
+                ]
+                for line in lines:
+                    txt = self.font.render(line, True, (220, 220, 220))
+                    surface.blit(txt, (popup_rect.x + 30, y))
+                    y += line_gap
+
+                bar_rect = pygame.Rect(popup_rect.x + 30, y + 10, popup_rect.width - 60, 20)
+                pygame.draw.rect(surface, (60, 60, 60), bar_rect)
+                fill_w = int(bar_rect.width * (float(progress) / 100.0))
+                pygame.draw.rect(surface, (0, 200, 0), pygame.Rect(bar_rect.x, bar_rect.y, fill_w, bar_rect.height))
+                pygame.draw.rect(surface, (25, 25, 25), bar_rect, 1)
+            else:
+                txt = self.font.render("No active war", True, (200, 200, 200))
+                surface.blit(txt, txt.get_rect(center=(popup_rect.centerx, popup_rect.centery)))
+
+            hint = self.font.render("Press ESC to close", True, (170, 170, 170))
+            surface.blit(hint, hint.get_rect(center=(popup_rect.centerx, popup_rect.bottom - 20)))
+
             if self.pausemenuopen:
                 self._draw_pausemenu(surface)
             return
-            
+                
 
         # full UI chrome (play)
         if self.leftbar.rect.width:
@@ -684,6 +755,17 @@ class InGameUI:
             y_cursor += 130
 
         # Recruit action only shows in RECRUIT tab (and only when no country menu)
+
+        elif self.active_left_tab == "COMBAT" and not self._countrymenutarget:
+            surface.blit(self.font.render("War Operations", True, (240, 240, 240)), (content_rect.x, y_cursor))
+            self._war_progress_rect.topleft = (content_rect.x, y_cursor + 30)
+            draw_btn(
+                self._war_progress_rect, 
+                True, 
+                "WAR PROGRESS", 
+                primary=False
+            )
+            y_cursor += 80
         elif selected_tab == "RECRUIT":
             # place recruit action near troop decision buttons
             self._recruit_action_rect.topleft = (content_rect.x, self._split_rect.y - 44)
