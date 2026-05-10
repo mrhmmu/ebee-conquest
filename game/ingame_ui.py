@@ -3,22 +3,10 @@ import os
 
 import pygame
 
+from engine.gui import gui_drawtroopcountbadge, gui_mergetroopbadgeentries
 from .focusui import FocusTreeView
 
 ctypes.windll.user32.SetProcessDPIAware()
-
-def _badge_text_color(backgroundcolor):
-    r, g, b = (backgroundcolor + (0, 0, 0))[:3] if isinstance(backgroundcolor, tuple) else (0, 0, 0)
-
-    yellowish = r >= 200 and g >= 180 and b <= 90
-    orangish = r >= 200 and 100 <= g <= 190 and b <= 90
-
-    if yellowish or orangish:
-        return (0, 0, 0)
-
-    brightness = (r * 0.299 + g * 0.587 + b * 0.114)
-    return (0, 0, 0) if brightness > 186 else (255, 255, 255)
-
 
 
 class Panel:
@@ -539,7 +527,8 @@ class InGameUI:
         surface.blit(self.font.render(stats_text, True, (220, 220, 220)), (stats_x, stats_y + 2))
 
         # troop badges on top of the map (map-local centers need viewport offset)
-        for entry in self._troopbadgelist:
+        visiblebadgelist = gui_mergetroopbadgeentries(self._troopbadgelist, self.font, self._flags)
+        for entry in visiblebadgelist:
             if not isinstance(entry, dict):
                 continue
             center = entry.get("center")
@@ -547,31 +536,17 @@ class InGameUI:
                 continue
             cx = int(center[0] + self.map_rect.x)
             cy = int(center[1] + self.map_rect.y)
-            troops = int(entry.get("troops", 0))
-            country_name = entry.get("country")
-            country_key = str(country_name or "").strip().lower().replace(" ", "_").replace("-", "_")
-            flag_img = self._flags.get(country_key) if country_key else None
-
-            background = entry.get("backgroundcolor", (0, 0, 0))
-            text_color = _badge_text_color(background)
-            label = self.font.render(str(troops), True, text_color)
-            pad_x, pad_y = 6, 4
-            spacing = 4
-            content_w = label.get_width() + (flag_img.get_width() + spacing if flag_img else 0)
-            content_h = max(label.get_height(), flag_img.get_height() if flag_img else 0)
-            rect = pygame.Rect(0, 0, content_w + pad_x * 2, content_h + pad_y * 2)
-            rect.center = (cx, cy)
-            background = entry.get("backgroundcolor", (0, 0, 0))
-            border = entry.get("bordercolor", (165, 165, 165))
-            pygame.draw.rect(surface, background, rect, border_radius=4)
-            pygame.draw.rect(surface, border, rect, 1, border_radius=4)
-
-            draw_x = rect.x + pad_x
-            center_y = rect.y + rect.height // 2
-            if flag_img:
-                surface.blit(flag_img, (draw_x, center_y - flag_img.get_height() // 2))
-                draw_x += flag_img.get_width() + spacing
-            surface.blit(label, (draw_x, center_y - label.get_height() // 2))
+            gui_drawtroopcountbadge(
+                surface,
+                (cx, cy),
+                entry.get("troops", 0),
+                self.font,
+                self._flags,
+                entry.get("country"),
+                backgroundcolor=entry.get("backgroundcolor", (0, 0, 0)),
+                bordercolor=entry.get("bordercolor", (165, 165, 165)),
+                rows=entry.get("rows"),
+            )
 
         # hover tooltip (full-window coords) must be on top of badges
         if self._hovertext:
