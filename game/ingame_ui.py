@@ -232,6 +232,45 @@ class InGameUI:
 
         return flags
 
+    @staticmethod
+    def _format_number(value):
+        try:
+            return f"{int(value):,}"
+        except (TypeError, ValueError):
+            return "0"
+
+    @staticmethod
+    def _format_decimal(value):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            number = 0.0
+        if abs(number - int(number)) < 0.05:
+            return f"{int(number):,}"
+        return f"{number:,.1f}"
+
+    @staticmethod
+    def _fit_text(font, text, max_width):
+        # trim long labels before they enter fixed-width war columns.
+        text = str(text)
+        if font.size(text)[0] <= max_width:
+            return text
+
+        suffix = "..."
+        available_width = max(0, max_width - font.size(suffix)[0])
+        fitted = ""
+        for char in text:
+            candidate = fitted + char
+            if font.size(candidate)[0] > available_width:
+                break
+            fitted = candidate
+        return fitted.rstrip() + suffix if fitted else suffix
+
+    def _draw_text_fit(self, surface, text, color, x, y, max_width, font=None):
+        font = font or self.font
+        fitted = self._fit_text(font, text, max_width)
+        surface.blit(font.render(fitted, True, color), (x, y))
+
     def applylayout(self):
         window_width, window_height = self.window_size
 
@@ -515,10 +554,12 @@ class InGameUI:
                 selected = self.font.render(f"Selected: {self.pendingcountry}", True, (230, 230, 230))
                 surface.blit(selected, (self._choose_rect.x, self._choose_rect.y - 22))
 
+            return
 
                 
         if self.warprogressopen:
-            popup_w, popup_h = 420, 220
+            popup_w = min(560, max(360, surface.get_width() - 40))
+            popup_h = min(380, max(300, surface.get_height() - 60))
             popup_rect = pygame.Rect(0, 0, popup_w, popup_h)
             popup_rect.center = surface.get_rect().center
 
@@ -536,26 +577,89 @@ class InGameUI:
             aggressor = data.get("aggressor")
             defender = data.get("defender") 
             progress = data.get("progress")
+            defender_progress = data.get("defender_progress", 0)
 
-            y = popup_rect.y + 70
-            line_gap = 28
+            content_x = popup_rect.x + 30
+            content_w = popup_rect.width - 60
 
             if aggressor and defender and progress is not None:
-                lines = [
-                    f"Aggressor: {aggressor}",
-                    f"Defender: {defender}",
-                    f"Territory Occupied: {float(progress):.1f}%",
-                ]
-                for line in lines:
-                    txt = self.font.render(line, True, (220, 220, 220))
-                    surface.blit(txt, (popup_rect.x + 30, y))
-                    y += line_gap
+                progress_value = max(0.0, min(100.0, float(progress)))
+                defender_progress_value = max(0.0, min(100.0, float(defender_progress or 0)))
 
-                bar_rect = pygame.Rect(popup_rect.x + 30, y + 10, popup_rect.width - 60, 20)
+                subtitle = f"{aggressor} vs {defender}"
+                self._draw_text_fit(surface, subtitle, (235, 235, 235), content_x, popup_rect.y + 60, content_w, self.title_font)
+
+                progress_line = f"{aggressor} holds {progress_value:.1f}% of {defender} victory points"
+                self._draw_text_fit(surface, progress_line, (215, 215, 215), content_x, popup_rect.y + 88, content_w)
+
+                bar_rect = pygame.Rect(content_x, popup_rect.y + 114, content_w, 20)
                 pygame.draw.rect(surface, (60, 60, 60), bar_rect)
-                fill_w = int(bar_rect.width * (float(progress) / 100.0))
-                pygame.draw.rect(surface, (0, 200, 0), pygame.Rect(bar_rect.x, bar_rect.y, fill_w, bar_rect.height))
+                fill_w = int(bar_rect.width * (progress_value / 100.0))
+                counter_w = int(bar_rect.width * (defender_progress_value / 100.0))
+                if fill_w > 0:
+                    pygame.draw.rect(surface, (0, 190, 95), pygame.Rect(bar_rect.x, bar_rect.y, fill_w, bar_rect.height))
+                if counter_w > 0:
+                    # draw defender counter-progress from the right edge.
+                    pygame.draw.rect(surface, (180, 60, 60), pygame.Rect(bar_rect.right - counter_w, bar_rect.y, counter_w, bar_rect.height))
                 pygame.draw.rect(surface, (25, 25, 25), bar_rect, 1)
+
+                col_gap = 24
+                col_w = (content_w - col_gap) // 2
+                left_x = content_x
+                right_x = content_x + col_w + col_gap
+                top_y = popup_rect.y + 152
+
+                def draw_war_column(x, y, role, country, manpower, casualties, controlled_vp, total_vp, captured_vp, occupied_provinces):
+                    self._draw_text_fit(surface, role, (200, 170, 80), x, y, col_w, self.title_font)
+                    self._draw_text_fit(surface, country, (235, 235, 235), x, y + 24, col_w)
+                    lines = [
+                        f"Manpower: {self._format_number(manpower)}",
+                        f"Casualties: {self._format_number(casualties)}",
+                        f"VP held: {self._format_decimal(controlled_vp)} / {self._format_decimal(total_vp)}",
+                        f"Enemy VP held: {self._format_decimal(captured_vp)}",
+                        f"Enemy provinces: {self._format_number(occupied_provinces)}",
+                    ]
+                    line_y = y + 50
+                    for line in lines:
+                        self._draw_text_fit(surface, line, (212, 212, 212), x, line_y, col_w)
+                        line_y += 22
+
+                draw_war_column(
+                    left_x,
+                    top_y,
+                    "Aggressor",
+                    str(aggressor),
+                    data.get("aggressor_manpower", 0),
+                    data.get("aggressor_casualties", 0),
+                    data.get("aggressor_controlled_vp", 0),
+                    data.get("aggressor_total_vp", 0),
+                    data.get("aggressor_captured_vp", 0),
+                    data.get("aggressor_occupied_enemy_provinces", 0),
+                )
+                draw_war_column(
+                    right_x,
+                    top_y,
+                    "Defender",
+                    str(defender),
+                    data.get("defender_manpower", 0),
+                    data.get("defender_casualties", 0),
+                    data.get("defender_controlled_vp", 0),
+                    data.get("defender_total_vp", 0),
+                    data.get("defender_captured_vp", 0),
+                    data.get("defender_occupied_enemy_provinces", 0),
+                )
+
+                status_parts = [f"Active wars: {self._format_number(data.get('active_war_count', 1))}"]
+                if data.get("start_turn"):
+                    status_parts.append(f"Since turn {self._format_number(data.get('start_turn'))}")
+                self._draw_text_fit(
+                    surface,
+                    " | ".join(status_parts),
+                    (170, 170, 170),
+                    content_x,
+                    popup_rect.bottom - 48,
+                    content_w,
+                )
             else:
                 txt = self.font.render("No active war", True, (200, 200, 200))
                 surface.blit(txt, txt.get_rect(center=(popup_rect.centerx, popup_rect.centery)))
