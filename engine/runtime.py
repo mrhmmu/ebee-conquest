@@ -627,7 +627,7 @@ def groupsubdivisionsbystate(provincelist, statelist):
         if parentstateid not in stateidset:
             continue
         province["parentid"] = parentstateid
-        province["victory_points"] = state.get("victory_points", 0)
+        province["victory_points"] = stateidset.get("victory_points", 0)
         groupedlookup[parentstateid].append(province)
         #print(province["id"], "parent", parentstateid)
     #print(groupedlookup)
