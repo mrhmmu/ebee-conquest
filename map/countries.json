@@ -2,6 +2,7 @@
 [
     {
         "Country": "Malaysia",
+        "Personality": "Defensive",
         "States": {
             "Malaya": {
                 "capital": "Kuala_Lumpur",
@@ -25,6 +26,7 @@
     },
     {
         "Country": "Singapore",
+        "Personality": "Defensive",
         "States": {
             "Singapore": {
                 "capital": "Singapore",
@@ -36,6 +38,7 @@
     },
     {
         "Country": "Thailand",
+        "Personality": "Aggressive",
         "States": {
             "Lanna": {
                 "capital": "Chiang_Mai",
@@ -65,6 +68,7 @@
     },
     {
         "Country": "Indonesia",
+        "Personality": "Aggressive",
         "States": {
             "Java": {
                 "capital": "Jakarta",
@@ -118,6 +122,7 @@
     },
     {
         "Country": "Brunei",
+        "Personality": "Defensive",
         "States": {
             "Brunei": {
                 "capital": "Bandar_Seri_Begawan",
@@ -129,6 +134,7 @@
     },
     {
         "Country": "Philippines",
+        "Personality": "Aggressive",
         "States": {
             "Luzon": {
                 "capital": "Luzon",
@@ -194,6 +200,7 @@
     },
     {
         "Country": "Vietnam",
+        "Personality": "Aggressive",
         "States": {
             "Tonkin": {
                 "capital": "Hanoi",
@@ -217,6 +224,7 @@
     },
     {
         "Country": "Timor_Leste",
+        "Personality": "Defensive",
         "States": {
             "Portuguese_Timor": {
                 "capital": "Dili",
@@ -228,6 +236,7 @@
     },
     {
         "Country": "Cambodia",
+        "Personality": "Defensive",
         "States": {
             "Cambodia": {
                 "capital": "Phnom_Penh",
@@ -239,6 +248,7 @@
     },
     {
         "Country": "Laos",
+        "Personality": "Defensive",
         "States": {
             "Laos": {
                 "capital": "Vientiane",
@@ -250,6 +260,7 @@
     },
     {
         "Country": "Myanmar",
+        "Personality": "Aggressive",
         "States": {
             "Tenasserim": {
                 "capital": "Naypyidaw",
