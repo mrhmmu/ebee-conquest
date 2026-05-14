@@ -4,10 +4,9 @@ import math
 import time
 import platform
 import pygame
-import xml.etree.ElementTree as elementtree
-from svgelements import Path
 import ctypes
-ctypes.windll.user32.SetProcessDPIAware()
+if platform.system() == "Windows":
+    ctypes.windll.user32.SetProcessDPIAware()
 
 #TODO - OPTIMIZATION: consider using numpy for heavy geometry calculations and data handling, especially for large maps with many provinces and complex shapes. This could significantly improve performance for operations like point-in-polygon tests, polygon transformations, and adjacency graph construction.
 #Local module
@@ -25,7 +24,7 @@ from engine.gui import (
     gui_drawcountryborders,
     drawdevfpsgraph,
 )
-from engine.diagnostics import logstartupdiagnostics, createloadingprogresscallback, logslowpath
+from engine.diagnostics import logstartupdiagnostics, createloadingprogresscallback
 from . import core as coremodule
 from . import movement as movementmodule
 from . import economy as economymodule
@@ -59,11 +58,37 @@ defaultshapecolor = (200, 200, 200)
 hovercolor = (255, 100, 100)
 minimumzoomvalue = cameramodule.minimumzoomvalue
 maximumzoomvalue = cameramodule.maximumzoomvalue
-zoomstepvalue = cameramodule.zoomstepvalue
 edgepanmargin = cameramodule.defaultpanconfig.margin
 edgepanspeed = cameramodule.defaultpanconfig.speed
+getscreenpoints = cameramodule.getscreenpoints
+getscreenrectangle = cameramodule.getscreenrectangle
+loadsvgshapes = coremodule.loadsvgshapes
+getmapbox = coremodule.getmapbox
+getprovincecontroller = movementmodule.getprovincecontroller
+getprovinceowner = movementmodule.getprovinceowner
+setprovincecontroller = movementmodule.setprovincecontroller
+prepareprovincemetadata = movementmodule.prepareprovincemetadata
+buildprovinceadjacencygraph = movementmodule.buildprovinceadjacencygraph
+findprovincepath = movementmodule.findprovincepath
+processmovementorders = movementmodule.processmovementorders
+splitselectedtroops = movementmodule.splitselectedtroops
+mergeselectedtroops = movementmodule.mergeselectedtroops
+getcountryborderedges = movementmodule.getcountryborderedges
+getborderworldsegments = movementmodule.getborderworldsegments
+createfrontline = movementmodule.createfrontline
+pointtosegmentdistance = movementmodule.pointtosegmentdistance
+markprovincetroopactivity = movementmodule.markprovincetroopactivity
+getrecruitcosts = economymodule.getrecruitcosts
+canrecruittroops = economymodule.canrecruittroops
+applyendturneconomy = economymodule.applyendturneconomy
+getdefaulteconomyconfig = economymodule.getdefaulteconomyconfig
+initializeplayereconomy = economymodule.initializeplayereconomy
+groupsubdivisionsbystate = coremodule.groupsubdivisionsbystate
+loadcountrydata = coremodule.loadcountrydata
+ispointinsidepolygon = coremodule.ispointinsidepolygon
 curvesamplestep = 1.5
-maxsegmentsteps = 48
+
+maxsegmentsteps = 32
 
 
 # GAME LOGIC AND RENDERING STARTS
@@ -120,7 +145,7 @@ def convertpathtopolygons(svgpath):
 
 
         for pointx, pointy in sampledpoints:
-            if not cleanedpoints or abs(pointx - cleanedpoints[-1][0]) or abs(pointy - cleanedpoints[-1][1]) > 1e-6: #1e-6 is a threshold to consider points different
+            if not cleanedpoints or abs(pointx - cleanedpoints[-1][0]) > 1e-6 or abs(pointy - cleanedpoints[-1][1]) > 1e-6: #1e-6 is a threshold to consider points different
                 cleanedpoints.append((pointx, pointy))
                 #print(cleanedpoints[-1])
 
@@ -149,22 +174,6 @@ def convertpathtopolygons(svgpath):
 
 
 
-def ispointinsidepolygon(point, polygon):
-    mousex, mousey = point
-    inside = False
-    previousindex = len(polygon) - 1
-
-    for currentindex in range(len(polygon)):
-        currentx, currenty = polygon[currentindex]
-        previousx, previousy = polygon[previousindex]
-        crossed = ((currenty > mousey) != (previousy > mousey)) and (
-            mousex < (previousx - currentx) * (mousey - currenty) / ((previousy - currenty) or 1e-9) + currentx
-        )
-        if crossed:
-            inside = not inside
-        previousindex = currentindex
-
-    return inside
 
 
 
@@ -581,58 +590,9 @@ def getkruskalbridges(segmentlist, maxgapdistance=16.0):
 
 
 
-def loadcountrydata(filepath):
-    try:
-        with open(filepath, "r", encoding="utf-8") as fileobject:
-            rawdata = json.load(fileobject)
-    except (OSError, json.JSONDecodeError):
-        return {}, {}
-
-    if not isinstance(rawdata, list):
-        return {}, {}
-
-    statetocountrylookup = {}
-
-
-    for countryindex, countryentry in enumerate(rawdata):
-        if not isinstance(countryentry, dict):
-            continue
-
-        countryname = str(countryentry.get("Country", "")).strip()
-        if not countryname:
-            continue
-
-
-        statesdict = countryentry.get("States", {})
-        if not isinstance(statesdict, dict):
-            continue
-
-        for statename in statesdict.keys():
-            if isinstance(statename, str) and statename.strip():
-                statetocountrylookup[statename.strip()] = countryname
-
-    return statetocountrylookup
-
 # group subdivision to their parent state for rendering 
 
 
-def groupsubdivisionsbystate(provincelist, statelist):
-
-    stateidset = {stateid["id"] for stateid in statelist}
-    groupedlookup = {stateid: [] for stateid in stateidset}
-
-
-    for province in provincelist:
-        parentstateid = getparentstateidfromprovinceid(province["id"])
-        if parentstateid not in stateidset:
-            continue
-        province["parentid"] = parentstateid
-        province["victory_points"] = stateidset.get("victory_points", 0)
-        groupedlookup[parentstateid].append(province)
-        #print(province["id"], "parent", parentstateid)
-    #print(groupedlookup)
-
-    return groupedlookup # stateid to list of provinces for example ("Malaya" -> [province1, province2])
 
 
 
@@ -1755,7 +1715,7 @@ def main(eventbus=None, is_fullscreen=False):
     newssystem = NewsSystem(eventbus)
     newssystem.start()
     newspopup = NewsPopup()
-    scriptmanager = scriptengine.initscripts("scripts", autoload=True)
+    scriptengine.initscripts("scripts", autoload=True)
     # UI chrome + map viewport
     # runtime-owned font/caches (previously stored on EngineUI)
     troopbadgefont = pygame.font.SysFont("Arial", 16)
@@ -2304,6 +2264,24 @@ def main(eventbus=None, is_fullscreen=False):
         if gamephase == "play" and warpairset and runtimeui.warprogressopen:
             warprogressdata = buildwarprogressdata()
 
+        countrymenu_population = 0
+        countrymenu_manpower = 0
+        countrymenu_stability = 0
+        countrymenu_leader = "Unknown"
+        if gamephase == "play" and countrymenutarget:
+            for province in provincemap.values():
+                controller = province.get("controllercountry", province.get("country"))
+                if controller == countrymenutarget:
+                    countrymenu_population += int(province.get("population", 0) or 0)
+                    countrymenu_manpower += int(province.get("troops", 0) or 0)
+            for countryentry in countries_full:
+                if not isinstance(countryentry, dict):
+                    continue
+                if str(countryentry.get("Country", "")).strip() == countrymenutarget:
+                    countrymenu_stability = float(countryentry.get("stability", 0) or 0)
+                    countrymenu_leader = str(countryentry.get("leader", "Unknown") or "Unknown")
+                    break
+
         runtimeui.sync(
             gamephase,
             pendingcountry,
@@ -2327,6 +2305,10 @@ def main(eventbus=None, is_fullscreen=False):
             troopbadgelist,
             focustree.viewdata(),
             warprogressdata=warprogressdata,
+            countrymenu_population=countrymenu_population,
+            countrymenu_manpower=countrymenu_manpower,
+            countrymenu_stability=countrymenu_stability,
+            countrymenu_leader=countrymenu_leader,
         )
         runtimeui.update(elapsedseconds)
         runtimeui.draw(screen)
@@ -3043,13 +3025,13 @@ def main(eventbus=None, is_fullscreen=False):
 
 
             elif event.type == pygame.VIDEORESIZE:
-                if is_fullscreen: 
+                if is_fullscreen:
                     continue
                 oldmaprect = maprect
                 newwindowwidth = max(400, event.w)
                 newwindowheight = max(300, event.h)
 
-                screen = pygame.display.set_mode((newwindowwidth, newwindowheight), pygame.RESIZABLE)
+            
                 runtimeui.setwindowsize((newwindowwidth, newwindowheight))
                 maprect = runtimeui.map_rect
                 cameramodule.resizecamerastate(

@@ -149,6 +149,10 @@ class InGameUI:
         self._countrymenutarget = None
         self._countriesatwarset = set()
         self._selectedtroopentries = []
+        self._countrymenu_population = 0
+        self._countrymenu_manpower = 0
+        self._countrymenu_stability = 0
+        self._countrymenu_leader = "Unknown"
         self._frontlineplacementmode = False
         self._troopbadgelist = []
         self._hovertext = None
@@ -374,7 +378,12 @@ class InGameUI:
         troopbadgelist,
         focusview=None,
         warprogressdata=None,
+        countrymenu_population=0,
+        countrymenu_manpower=0,
+        countrymenu_stability=0,
+        countrymenu_leader="Unknown",
     ):
+        
         self.gamephase = gamephase
         self.pendingcountry = pendingcountry
         self.playercountry = playercountry
@@ -396,6 +405,10 @@ class InGameUI:
         if warprogressdata is not None:
             self._warprogressdata = warprogressdata
         self.applylayout()
+        self._countrymenu_population = int(countrymenu_population or 0)
+        self._countrymenu_manpower = int(countrymenu_manpower or 0)
+        self._countrymenu_stability = float(countrymenu_stability or 0)
+        self._countrymenu_leader = str(countrymenu_leader or "Unknown")
 
         # cache active manpower (sum troops controlled by player) only when inputs change
         cache_key = (id(provincemap), self.playercountry, int(currentturnnumber or 0))
@@ -839,24 +852,35 @@ class InGameUI:
             surface.blit(self.font.render("Country actions", True, (240, 240, 240)), (content_rect.x, y_cursor + 6))
             # country identity (no glow; map highlight handles the emphasis)
             country_key = str(self._countrymenutarget or "").strip().lower().replace(" ", "_").replace("-", "_")
-            flag_img = self._flags.get(country_key) if country_key else None
+            flag_key = self._flags.get(country_key) if country_key else None
             draw_x = content_rect.x
             draw_y = y_cursor + 30
-            if flag_img:
-                surface.blit(flag_img, (draw_x, draw_y + 2))
-                draw_x += flag_img.get_width() + 6
-            surface.blit(self.font.render(str(self._countrymenutarget), True, (220, 220, 220)), (draw_x, draw_y))
+            if flag_key:
+                big_flag = pygame.transform.scale(flag_key, (60, 42))
+                surface.blit(big_flag, (draw_x, draw_y))
+                draw_x += big_flag.get_width() + 10
+            name_y = draw_y + 6
+            surface.blit(self.title_font.render(str(self._countrymenutarget), True, (220, 220, 220)), (draw_x, name_y))
             status = "Status: at war" if alreadyatwar else "Status: peace"
-            surface.blit(self.font.render(status, True, (205, 205, 215)), (content_rect.x, y_cursor + 52))
-            # button gets its own row (no overlap)
-            self._declarewar_rect.topleft = (content_rect.x, y_cursor + 82)
+            surface.blit(self.font.render(status, True, (205, 205, 215)), (draw_x, name_y + 22))
+            self._declarewar_rect.topleft = (content_rect.x, y_cursor + 100)
             draw_btn(
                 self._declarewar_rect,
                 not alreadyatwar,
                 "Declare War" if not alreadyatwar else "Already at war!",
                 primary=False,
             )
-            y_cursor += 130
+            info_y = self._declarewar_rect.bottom + 14
+            info_lines = [
+                f"Population:  {self._format_number(self._countrymenu_population)}",
+                f"Manpower:   {self._format_number(self._countrymenu_manpower)}",
+                f"Stability:      {self._countrymenu_stability:.1f}",
+                f"Leader:         {self._countrymenu_leader}",
+            ]
+            for line in info_lines:
+                surface.blit(self.font.render(line, True, (210, 210, 210)), (content_rect.x, info_y))
+                info_y += 22
+            y_cursor = info_y + 8
 
         # Recruit action only shows in RECRUIT tab (and only when no country menu)
 
