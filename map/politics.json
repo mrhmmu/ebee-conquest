@@ -2,11 +2,11 @@
 [
     {
         "Country": "Malaysia",
-        "Leader": "Anwar Ibrahim",
+        "leader": "Anwar Ibrahim",
         "LeadingParty": "Pakatan Harapan",
-        "population":"32 million",
-        "manpower": "12 million",
-        "stability": " 65",
+        "population":"32000000",
+        "manpower": "12000000",
+        "stability": "65",
         "MajorPoliticalParties": [
             "PKR",
             "DAP",
@@ -17,11 +17,11 @@
     },
     {
         "Country": "Singapore",
-        "Leader": "Lawrence Wong",
+        "leader": "Lawrence Wong",
         "LeadingParty": "People's Action Party",
-        "population":"5 million",
-        "manpower": "4 million",
-        "stability": " 85",
+        "population":"5000000",
+        "manpower": "4000000",
+        "stability": "85",
         "MajorPoliticalParties": [
             "PAP",
             "Workers' Party",
@@ -30,11 +30,11 @@
     },
     {
         "Country": "Thailand",
-        "Leader": "Paetongtarn Shinawatra",
+        "leader": "Paetongtarn Shinawatra",
         "LeadingParty": "Pheu Thai Party",
-        "population":"70 million",
-        "manpower": "50 million",
-        "stability": " 40",
+        "population":"70000000",
+        "manpower": "50000000",
+        "stability": "40",
         "MajorPoliticalParties": [
             "Pheu Thai Party",
             "Move Forward Party",
