@@ -9,8 +9,22 @@ from svgelements import Path
 import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
-#TODO - OPTIMIZATION: consider using numpy for heavy geometry calculations and data handling, especially for large maps with many provinces and complex shapes. This could significantly improve performance for operations like point-in-polygon tests, polygon transformations, and adjacency graph construction.
-#Local module
+LEADERS = {
+    "Malaysia": "Anwar Ibrahim",
+    "Singapore": "Lawrence Wong",
+    "Indonesia": "Prabowo Subianto",
+    "Thailand": "Srettha Thavisin",
+    "Philippines": "Bongbong Marcos",
+    "Vietnam": "To Lam",
+    "Myanmar": "Min Aung Hlaing",
+    "Cambodia": "Hun Manet",
+    "Laos": "Thongloun Sisoulith",
+    "Brunei": "Hassanal Bolkiah"
+}
+
+
+
+
 from game.ingame_ui import InGameUI
 from game.focuseffects import FocusEffectContext
 from game.focusloader import loadfocustreeforcountry
@@ -860,7 +874,7 @@ def main(eventbus=None, is_fullscreen=False):
             "population": parse_population(entry.get("population", 0)),
             "manpower": parse_population(entry.get("manpower", 0)),
             "stability": float(str(entry.get("stability", 0)).strip() or 0),
-            "leader": str(entry.get("Leader", "Unknown")).strip(),
+            "leader": LEADERS.get(name, "Unknown"),
             "leading_party": str(entry.get("LeadingParty", "")).strip(),
             "parties": entry.get("MajorPoliticalParties", []),
         }
