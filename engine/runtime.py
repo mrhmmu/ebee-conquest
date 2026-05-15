@@ -295,12 +295,7 @@ def getbadgehitprovinceid(mouseposition, badgehitlist):
             return badgeentry["provinceid"]
     return None
 
-with open(countrydatafilepath, "r", encoding="utf-8") as f:
-    countries_full = json.load(f)
-# ESO optimization 22/04
-# O(c*s) --> O(1)
-# build state lookup once and reuse for hover data
-state_data_lookup = esomodule.buildstatedatalookup(countries_full)
+
 
 
     # for countryindex, countryentry in enumerate(rawdata):
@@ -838,10 +833,42 @@ def main(eventbus=None, is_fullscreen=False):
     
 
     logstartupdiagnostics(startupbegintimestamp, "states loaded", f"count={len(stateshapelist)}")
+
+    
+    statetocountrylookup, countrytocolorlookup = loadcountrydata(countrydatafilepath)
+
+    with open(countrydatafilepath, "r", encoding="utf-8") as f:
+        countries_raw = json.load(f)
+
+    def parse_population(text):
+        text = str(text).strip().lower().replace(" ", "").replace(",", "")
+        if "million" in text:
+            return int(float(text.replace("million", "")) * 1_000_000)
+        if "billion" in text:
+            return int(float(text.replace("billion", "")) * 1_000_000_000)
+        try:
+            return int(float(text))
+        except ValueError:
+            return 0
+
+    country_stats_lookup = {}
+    for entry in countries_raw:
+        name = str(entry.get("Country", "")).strip()
+        if not name:
+            continue
+        country_stats_lookup[name] = {
+            "population": parse_population(entry.get("population", 0)),
+            "manpower": parse_population(entry.get("manpower", 0)),
+            "stability": float(str(entry.get("stability", 0)).strip() or 0),
+            "leader": str(entry.get("Leader", "Unknown")).strip(),
+            "leading_party": str(entry.get("LeadingParty", "")).strip(),
+            "parties": entry.get("MajorPoliticalParties", []),
+        }
+       
+    
     statetocountrylookup, countrytocolorlookup = loadcountrydata(countrydatafilepath)
     allowedstateidset = set(statetocountrylookup.keys())
-
-
+    state_data_lookup = esomodule.buildstatedatalookup(stateshapelist)
     logstartupdiagnostics(
         startupbegintimestamp,
         "countries loaded",
@@ -1532,8 +1559,7 @@ def main(eventbus=None, is_fullscreen=False):
 
 
 
-    #SCRIPT LOADING
-        updatescriptengine()
+   
 
     def handlewarended(payload):
         firstcountry = None
@@ -1761,7 +1787,7 @@ def main(eventbus=None, is_fullscreen=False):
     troopbadgefont = pygame.font.SysFont("Arial", 16)
     countrylabelfont = pygame.font.SysFont("Arial", 18, bold=True)
     countrylabelcache = {}
-
+    current_stats = {}
     dragselectstart = None
     dragselectcurrent = None
     isdragselecting = False
@@ -2281,6 +2307,8 @@ def main(eventbus=None, is_fullscreen=False):
         if gamephase == "play" and warpairset and runtimeui.warprogressopen:
             warprogressdata = buildwarprogressdata()
 
+            
+
         runtimeui.sync(
             gamephase,
             pendingcountry,
@@ -2304,6 +2332,7 @@ def main(eventbus=None, is_fullscreen=False):
             troopbadgelist,
             focustree.viewdata(),
             warprogressdata=warprogressdata,
+            selected_country_stats=current_stats,
         )
         runtimeui.update(elapsedseconds)
         runtimeui.draw(screen)
@@ -2605,11 +2634,15 @@ def main(eventbus=None, is_fullscreen=False):
                     if hoveredstateid:
                         selectedstateobject = stateobjectlookup.get(hoveredstateid)
                         if selectedstateobject and selectedstateobject.get("country"):
-                            runtimeui.select_map_country(selectedstateobject["country"])
+                            country = selectedstateobject["country"]
+                            runtimeui.select_map_country(country)
+                            current_stats = country_stats_lookup.get(country, {})
                         else:
                             runtimeui.select_map_country(None)
+                            current_stats = {}
                     else:
                         runtimeui.select_map_country(None)
+                        current_stats = {}
 
                 if gamephase == "play" and frontlineplacementmode:
                     if hoveredfrontlineedgekey and hoveredfrontlineedgekey in frontlineedgebykey:
@@ -2706,6 +2739,8 @@ def main(eventbus=None, is_fullscreen=False):
                         selectedprovinceid = None
                         selectedprovinceidset = set()
                         routepreviewset = set()
+                    
+                    current_stats = {}
 
                     dragselectstart = None
                     dragselectcurrent = None

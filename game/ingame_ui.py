@@ -136,6 +136,7 @@ class InGameUI:
         self.recruitenabled = False
         self._countrymenutarget = None
         self._selectedmapcountry = None
+        self._selected_country_stats = {}
         self._bigflags = {}
         self._countriesatwarset = set()
         self._selectedtroopentries = []
@@ -195,6 +196,9 @@ class InGameUI:
         self.quit_menu = pygame.Rect(0,0,10,10)
         self.map_rect = pygame.Rect(0, 0, 10, 10)
         self.applylayout()
+
+
+    
 
     def _load_flags(self):
         flags = {}
@@ -387,6 +391,7 @@ class InGameUI:
         troopbadgelist,
         focusview=None,
         warprogressdata=None,
+        selected_country_stats=None,
     ):
         self.gamephase = gamephase
         self.pendingcountry = pendingcountry
@@ -408,6 +413,9 @@ class InGameUI:
         # reflow after state changes (tab visibility depends on selection/menu)
         if warprogressdata is not None:
             self._warprogressdata = warprogressdata
+        if selected_country_stats is not None:
+            self._selected_country_stats = selected_country_stats
+
         self.applylayout()
 
         # cache active manpower (sum troops controlled by player) only when inputs change
@@ -870,6 +878,31 @@ class InGameUI:
                 primary=False
             )
             y_cursor += 80
+
+        elif self._selectedmapcountry and not self._countrymenutarget:
+            big_flag = self._get_big_flag(self._selectedmapcountry, size=(200, 150))
+            y_cursor = content_rect.y + 12
+            if big_flag:
+                flag_x = content_rect.x + (content_rect.width - big_flag.get_width()) // 2
+                surface.blit(big_flag, (flag_x, y_cursor))
+                y_cursor += big_flag.get_height() + 16
+
+            # Country name
+            name_surf = self.title_font.render(str(self._selectedmapcountry), True, (240, 240, 240))
+            surface.blit(name_surf, (content_rect.x, y_cursor))
+            y_cursor += name_surf.get_height() + 8
+
+            # Stats block
+            stats = self._selected_country_stats or {}
+            lines = [
+                f"Population: {self._format_number(stats.get('population', 0))}",
+                f"Manpower:   {self._format_number(stats.get('manpower', 0))}",
+                f"Stability:  {self._format_decimal(stats.get('stability', 0))}%",
+                f"Leader:     {stats.get('leader', 'Unknown')}",
+            ]
+            for line in lines:
+                surface.blit(self.font.render(line, True, (212, 212, 212)), (content_rect.x, y_cursor))
+                y_cursor += 20
 
         elif self._selectedmapcountry and not self._countrymenutarget:
             big_flag = self._get_big_flag(self._selectedmapcountry, size=(200, 150))
