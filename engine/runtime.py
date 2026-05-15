@@ -2123,30 +2123,7 @@ def main(eventbus=None, is_fullscreen=False):
                        "rect": troopbadgerect,
                    })
 
-
-           merged = []
-           MERGE_DISTANCE = 60 / zoomvalue
-
-           for entry in troopbadgelist_raw:
-              ex, ey = entry["center"]
-              added = False
-
-              for group in merged:
-                  gx, gy = group["center"]
-
-                  dx = ex - gx
-                  dy = ey - gy
-                  dist = (dx * dx + dy * dy) ** 0.5
-
-                  if dist < MERGE_DISTANCE:
-                      group["troops"] += entry["troops"]
-                      added = True
-                      break
-
-              if not added:
-                  merged.append(entry)
-
-           troopbadgelist = merged
+           troopbadgelist = troopbadgelist_raw
            
 
         if gamephase == "play" and movementorderlist:

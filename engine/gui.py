@@ -5,6 +5,7 @@ import math
 
 troopbadgevisiblezoommultiplier = 2.5
 countrylabelvisiblezoommultiplier = 6
+troopbadgeoverlapmergethreshold = 0.5
 FLAG_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "flags"))
 troopbadgelayoutcache = {}
 troopbadgeassetcache = {}
@@ -92,6 +93,184 @@ def gui_gettroopbadgerect(centerposition, troopcount, fontobject):
     labelrectangle.center = (int(centerposition[0]), int(centerposition[1]))
     
     return labelrectangle
+
+
+def gui_getcountryflagkey(country_name):
+    return str(country_name or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def gui_gettroopbadgevisualrect(centerposition, troopcount, fontobject, flags=None, country_name=None):
+    if not centerposition:
+        return pygame.Rect(0, 0, 0, 0)
+
+    labelsurface = fontobject.render(str(troopcount), True, (255, 255, 255))
+    flagkey = gui_getcountryflagkey(country_name)
+    flagimage = flags.get(flagkey) if flags and flagkey else None
+    padding = 6
+    spacing = 4
+    width = labelsurface.get_width() + padding * 2
+    if flagimage:
+        width += flagimage.get_width() + spacing
+    height = max(labelsurface.get_height(), flagimage.get_height() if flagimage else 0) + padding * 2
+    labelrectangle = pygame.Rect(0, 0, width, height)
+    labelrectangle.center = (int(centerposition[0]), int(centerposition[1]))
+    return labelrectangle
+
+
+def gui_gettroopbadgerowvisuals(fontobject, flags, country_name, troopcount, text_color):
+    flagkey = gui_getcountryflagkey(country_name)
+    flagimage = flags.get(flagkey) if flags and flagkey else None
+    textsurface = fontobject.render(str(troopcount), True, text_color)
+    return flagimage, textsurface
+
+
+def gui_getoverlapratio(firstrect, secondrect):
+    intersection = firstrect.clip(secondrect)
+    if intersection.width <= 0 or intersection.height <= 0:
+        return 0.0
+
+    firstarea = max(1, firstrect.width * firstrect.height)
+    secondarea = max(1, secondrect.width * secondrect.height)
+    intersectionarea = intersection.width * intersection.height
+    return intersectionarea / float(min(firstarea, secondarea))
+
+
+def gui_shouldmergetroopbadgerects(firstrect, secondrect):
+    intersection = firstrect.clip(secondrect)
+    if intersection.width <= 0 or intersection.height <= 0:
+        return False
+
+    widthratio = intersection.width / float(max(1, min(firstrect.width, secondrect.width)))
+    heightratio = intersection.height / float(max(1, min(firstrect.height, secondrect.height)))
+    arearatio = gui_getoverlapratio(firstrect, secondrect)
+    return (
+        arearatio >= troopbadgeoverlapmergethreshold
+        or (
+            widthratio >= troopbadgeoverlapmergethreshold
+            and heightratio >= troopbadgeoverlapmergethreshold
+        )
+    )
+
+
+def gui_findtroopbadgeparent(parentlist, index):
+    while parentlist[index] != index:
+        parentlist[index] = parentlist[parentlist[index]]
+        index = parentlist[index]
+    return index
+
+
+def gui_mergetroopbadgeentries(troopbadgelist, fontobject, flags=None):
+    entries = []
+    for badgeentry in troopbadgelist:
+        if isinstance(badgeentry, dict):
+            center = badgeentry.get("center")
+            troops = max(0, int(badgeentry.get("troops", 0)))
+            country = badgeentry.get("country")
+            backgroundcolor = badgeentry.get("backgroundcolor", (0, 0, 0))
+            bordercolor = badgeentry.get("bordercolor", (165, 165, 165))
+            sourceentry = dict(badgeentry)
+        else:
+            center, troops = badgeentry
+            troops = max(0, int(troops))
+            country = None
+            backgroundcolor = (0, 0, 0)
+            bordercolor = (165, 165, 165)
+            sourceentry = {
+                "center": center,
+                "troops": troops,
+                "country": country,
+                "backgroundcolor": backgroundcolor,
+                "bordercolor": bordercolor,
+            }
+
+        if not center or troops <= 0:
+            continue
+
+        sourceentry["center"] = center
+        sourceentry["troops"] = troops
+        sourceentry["country"] = country
+        sourceentry["backgroundcolor"] = backgroundcolor
+        sourceentry["bordercolor"] = bordercolor
+        sourceentry["_visualrect"] = gui_gettroopbadgevisualrect(center, troops, fontobject, flags, country)
+        entries.append(sourceentry)
+
+    if len(entries) <= 1:
+        return entries
+
+    parentlist = list(range(len(entries)))
+
+    def union(firstindex, secondindex):
+        firstroot = gui_findtroopbadgeparent(parentlist, firstindex)
+        secondroot = gui_findtroopbadgeparent(parentlist, secondindex)
+        if firstroot != secondroot:
+            parentlist[secondroot] = firstroot
+
+    for firstindex in range(len(entries)):
+        firstrect = entries[firstindex]["_visualrect"]
+        for secondindex in range(firstindex + 1, len(entries)):
+            secondrect = entries[secondindex]["_visualrect"]
+            if not firstrect.colliderect(secondrect):
+                continue
+            if gui_shouldmergetroopbadgerects(firstrect, secondrect):
+                union(firstindex, secondindex)
+
+    clusterlookup = {}
+    for index, entry in enumerate(entries):
+        root = gui_findtroopbadgeparent(parentlist, index)
+        clusterlookup.setdefault(root, []).append(entry)
+
+    mergedentries = []
+    for cluster in clusterlookup.values():
+        if len(cluster) == 1:
+            entry = dict(cluster[0])
+            entry.pop("_visualrect", None)
+            mergedentries.append(entry)
+            continue
+
+        centerx = sum(float(entry["center"][0]) for entry in cluster) / len(cluster)
+        centery = sum(float(entry["center"][1]) for entry in cluster) / len(cluster)
+        rowsbycountry = {}
+        firstbackground = cluster[0].get("backgroundcolor", (0, 0, 0))
+        firstborder = cluster[0].get("bordercolor", (165, 165, 165))
+        mixedstyle = False
+
+        for entry in cluster:
+            country = entry.get("country")
+            countrykey = gui_getcountryflagkey(country)
+            rowkey = countrykey if countrykey else f"entry-{id(entry)}"
+            row = rowsbycountry.get(rowkey)
+            if row is None:
+                rowsbycountry[rowkey] = {
+                    "country": country,
+                    "countrykey": countrykey,
+                    "troops": 0,
+                }
+                row = rowsbycountry[rowkey]
+            row["troops"] += max(0, int(entry.get("troops", 0)))
+            if entry.get("backgroundcolor", (0, 0, 0)) != firstbackground or entry.get("bordercolor", (165, 165, 165)) != firstborder:
+                mixedstyle = True
+
+        rowlist = sorted(
+            rowsbycountry.values(),
+            key=lambda row: (str(row.get("country") or "").lower(), -int(row.get("troops", 0))),
+        )
+        backgroundcolor = (0, 0, 0) if mixedstyle else firstbackground
+        bordercolor = (165, 165, 165) if mixedstyle else firstborder
+        mergedentry = {
+            "center": (centerx, centery),
+            "troops": sum(int(row.get("troops", 0)) for row in rowlist),
+            "backgroundcolor": backgroundcolor,
+            "bordercolor": bordercolor,
+        }
+
+        if len(rowlist) == 1:
+            mergedentry["country"] = rowlist[0].get("country")
+        else:
+            mergedentry["rows"] = rowlist
+
+        mergedentries.append(mergedentry)
+
+    return mergedentries
 
 
 #def DEBUG():
@@ -782,7 +961,8 @@ class EngineUI:
             screen.blit(self.hudfont.render(self.hudheadertext, True, (242, 242, 242)), (10, 8))
             screen.blit(self.hudfont.render(self.huddetailtext, True, (236, 236, 236)), (10, 30))
             screen.blit(self.hudsmallfont.render(self.hudcontrolstext, True, (215, 215, 215)), (10, 52))
-        for badgeentry in self.troopbadgelist:
+        visiblebadgelist = gui_mergetroopbadgeentries(self.troopbadgelist, self.troopbadgefont, self.flags)
+        for badgeentry in visiblebadgelist:
             if isinstance(badgeentry, dict):
                 gui_drawtroopcountbadge(
                     screen,
@@ -793,6 +973,7 @@ class EngineUI:
                     badgeentry.get("country"),
                     backgroundcolor=badgeentry.get("backgroundcolor", (0, 0, 0)),
                     bordercolor=badgeentry.get("bordercolor", (165, 165, 165)),
+                    rows=badgeentry.get("rows"),
                 )
                 continue
 
@@ -917,6 +1098,7 @@ def gui_drawtroopcountbadge(
     country_name=None,
     backgroundcolor=(0, 0, 0),
     bordercolor=(165, 165, 165),
+    rows=None,
 ):
     # step 1: stop if center position is missing
     if not centerposition:
@@ -924,10 +1106,7 @@ def gui_drawtroopcountbadge(
 
     x, y = centerposition
 
-    # step 2: normalize country name to a key
-    country_key = str(country_name or "").strip().lower().replace(" ", "_").replace("-", "_")
-
-    # step 3: render troop number text
+    # step 2: render readable text color against the badge background
     if backgroundcolor in [(214, 194, 64), (214, 122, 36)]:
         text_color = (0, 0, 0)
     else:
@@ -935,15 +1114,54 @@ def gui_drawtroopcountbadge(
         brightness = (r * 0.299 + g * 0.587 + b * 0.114)
         text_color = (0, 0, 0) if brightness > 186 else (255, 255, 255)
 
-    text_surf = fontobject.render(str(troopcount), True, text_color)
-    
-    # step 4: get matching mini flag if it exists
-    flag_img = flags.get(country_key) if flags and country_key else None
-
     padding = 6
     spacing = 4
+    rowspacing = 2
 
-    # step 5: compute badge size from text and optional flag
+    if rows:
+        rowvisuals = []
+        contentwidth = 0
+        rowheights = []
+        for row in rows:
+            flag_img, text_surf = gui_gettroopbadgerowvisuals(
+                fontobject,
+                flags or {},
+                row.get("country"),
+                row.get("troops", 0),
+                text_color,
+            )
+            rowwidth = text_surf.get_width()
+            if flag_img:
+                rowwidth += flag_img.get_width() + spacing
+            rowheight = max(text_surf.get_height(), flag_img.get_height() if flag_img else 0)
+            rowvisuals.append((flag_img, text_surf, rowwidth, rowheight))
+            contentwidth = max(contentwidth, rowwidth)
+            rowheights.append(rowheight)
+
+        width = contentwidth + padding * 2
+        height = sum(rowheights) + rowspacing * max(0, len(rowheights) - 1) + padding * 2
+        rect = pygame.Rect(x - width // 2, y - height // 2, width, height)
+        pygame.draw.rect(screen, backgroundcolor, rect, border_radius=4)
+        pygame.draw.rect(screen, bordercolor, rect, 1, border_radius=4)
+
+        draw_y = rect.y + padding
+        for flag_img, text_surf, rowwidth, rowheight in rowvisuals:
+            draw_x = rect.x + padding
+            center_y = draw_y + rowheight // 2
+            if flag_img:
+                screen.blit(flag_img, (draw_x, center_y - flag_img.get_height() // 2))
+                draw_x += flag_img.get_width() + spacing
+            screen.blit(text_surf, (draw_x, center_y - text_surf.get_height() // 2))
+            draw_y += rowheight + rowspacing
+        return
+
+    country_key = gui_getcountryflagkey(country_name)
+    text_surf = fontobject.render(str(troopcount), True, text_color)
+    
+    # step 3: get matching mini flag if it exists
+    flag_img = flags.get(country_key) if flags and country_key else None
+
+    # step 4: compute badge size from text and optional flag
     content_width = text_surf.get_width()
 
     if flag_img:
@@ -962,22 +1180,22 @@ def gui_drawtroopcountbadge(
         height
     )
 
-    # step 6: draw the badge box
+    # step 5: draw the badge box
     pygame.draw.rect(screen, backgroundcolor, rect, border_radius=4)
     pygame.draw.rect(screen, bordercolor, rect, 1, border_radius=4)
 
     draw_x = rect.x + padding
 
-    # step 7: find vertical center for alignment
+    # step 6: find vertical center for alignment
     center_y = rect.y + rect.height // 2
 
-    # step 8: draw flag on the left
+    # step 7: draw flag on the left
     if flag_img:
         flag_y = center_y - flag_img.get_height() // 2
         screen.blit(flag_img, (draw_x, flag_y))
         draw_x += flag_img.get_width() + spacing
 
-    # step 9: draw troop number on the right
+    # step 8: draw troop number on the right
     text_y = center_y - text_surf.get_height() // 2
     screen.blit(text_surf, (draw_x, text_y))
 

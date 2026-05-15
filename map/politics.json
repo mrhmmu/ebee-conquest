@@ -1,0 +1,36 @@
+
+[
+    {
+        "Country": "Malaysia",
+        "Leader": "Anwar Ibrahim",
+        "LeadingParty": "Pakatan Harapan",
+        "MajorPoliticalParties": [
+            "PKR",
+            "DAP",
+            "UMNO",
+            "PAS",
+            "Bersatu"
+        ]
+    },
+    {
+        "Country": "Singapore",
+        "Leader": "Lawrence Wong",
+        "LeadingParty": "People's Action Party",
+        "MajorPoliticalParties": [
+            "PAP",
+            "Workers' Party",
+            "Progress Singapore Party"
+        ]
+    },
+    {
+        "Country": "Thailand",
+        "Leader": "Paetongtarn Shinawatra",
+        "LeadingParty": "Pheu Thai Party",
+        "MajorPoliticalParties": [
+            "Pheu Thai Party",
+            "Move Forward Party",
+            "Bhumjaithai Party",
+            "United Thai Nation Party"
+        ]
+    }
+]
