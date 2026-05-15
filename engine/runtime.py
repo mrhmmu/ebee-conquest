@@ -2459,6 +2459,7 @@ def main(eventbus=None, is_fullscreen=False):
                             "turn": currentturnnumber,
                         },
                     )
+                runtimeui.select_map_country(None)
                 countrymenutarget = None
                 continue
 
@@ -2665,18 +2666,8 @@ def main(eventbus=None, is_fullscreen=False):
                     continue
 
                 elif gamephase == "play":
-                    if hoveredstateid:
-                        selectedstateobject = stateobjectlookup.get(hoveredstateid)
-                        if selectedstateobject and selectedstateobject.get("country"):
-                            country = selectedstateobject["country"]
-                            runtimeui.select_map_country(country)
-                            current_stats = country_stats_lookup.get(country, {})
-                        else:
-                            runtimeui.select_map_country(None)
-                            current_stats = {}
-                    else:
-                        runtimeui.select_map_country(None)
-                        current_stats = {}
+                    runtimeui.select_map_country(None)
+                    current_stats = {}
 
                 if gamephase == "play" and frontlineplacementmode:
                     if hoveredfrontlineedgekey and hoveredfrontlineedgekey in frontlineedgebykey:
@@ -2873,6 +2864,20 @@ def main(eventbus=None, is_fullscreen=False):
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3: # right click for move orders
                 if devconsole.visible or gamephase != "play" or frontlineplacementmode:
                     continue
+
+
+                if hoveredstateid is not None and hoveredprovinceid is None:
+                    selectedstateobject = stateobjectlookup.get(hoveredstateid)
+                    if selectedstateobject:
+                        destinationcountry = selectedstateobject.get("controllercountry", selectedstateobject.get("country"))
+                        if destinationcountry:
+                            runtimeui.select_map_country(destinationcountry)
+                            countrymenutarget = None
+                            continue
+
+                if hoveredstateid is None and hoveredprovinceid is None:
+                    runtimeui.select_map_country(None)
+                    countrymenutarget = None
 
                 # Only open the country interaction menu when the click is on a state (no hovered province).
                 if hoveredprovinceid is None:
