@@ -2308,7 +2308,7 @@ def main(eventbus=None, is_fullscreen=False):
             warprogressdata = buildwarprogressdata()
 
             
-                # --- ADD THIS: build selected country stats from provinces + JSON ---
+                
         current_stats = {}
         if runtimeui._selectedmapcountry:
             selected_country = runtimeui._selectedmapcountry
@@ -2322,8 +2322,8 @@ def main(eventbus=None, is_fullscreen=False):
                     total_manpower += int(prov.get("troops", 0))
             
             current_stats = {
-                "population": total_pop,  # overrides JSON with live sum
-                "manpower": total_manpower,  # overrides JSON with live sum  
+                "population": total_pop,  
+                "manpower": total_manpower,  
                 "stability": base_stats.get("stability", 50.0),
                 "leader": base_stats.get("leader", "Unknown"),
             }
