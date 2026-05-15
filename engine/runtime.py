@@ -2624,6 +2624,16 @@ def main(eventbus=None, is_fullscreen=False):
 
                     continue
 
+                elif gamephase == "play":
+                    if hoveredstateid:
+                        selectedstateobject = stateobjectlookup.get(hoveredstateid)
+                        if selectedstateobject and selectedstateobject.get("country"):
+                            runtimeui.select_map_country(selectedstateobject["country"])
+                        else:
+                            runtimeui.select_map_country(None)
+                    else:
+                        runtimeui.select_map_country(None)
+
                 if gamephase == "play" and frontlineplacementmode:
                     if hoveredfrontlineedgekey and hoveredfrontlineedgekey in frontlineedgebykey:
                         frontlineresult = createfrontline(

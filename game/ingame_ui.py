@@ -147,6 +147,8 @@ class InGameUI:
         self.recruitamount = 0
         self.recruitenabled = False
         self._countrymenutarget = None
+        self._selectedmapcountry = None
+        self._bigflags = {}
         self._countriesatwarset = set()
         self._selectedtroopentries = []
         self._frontlineplacementmode = False
@@ -289,6 +291,7 @@ class InGameUI:
                 or self._selectedtroopentries
                 or self.bottom_buttons.selected == "RECRUIT"
                 or self.active_left_tab == "COMBAT"
+                or self._selectedmapcountry
             )
 
         left_w = self.leftbar_width if show_left else 0
@@ -345,6 +348,28 @@ class InGameUI:
         self._pausemenu_rect = pygame.Rect(menu_x, menu_y, menu_w, menu_h)
         self._pausequit_rect = pygame.Rect(menu_x + (menu_w - 150) // 2, menu_y + menu_h - 52, 150, 40)
         self._war_progress_rect = pygame.Rect(content_x, content_y + 40, content_w, 34)
+
+
+    def select_map_country(self, country_name: str | None):
+        self._selectedmapcountry = country_name
+        if country_name:
+            self._countrymenutarget = None
+            self._selectedtroopentries = []
+        self.applylayout()
+
+    def _get_big_flag(self, country_name, size=(200, 150)):
+        if not country_name:
+            return None
+        key = str(country_name).strip().lower().replace(" ", "_").replace("-", "_")
+        cache_key = (key, size)
+        if cache_key in self._bigflags:
+            return self._bigflags[cache_key]
+        small_flag = self._flags.get(key)
+        if not small_flag:
+            return None
+        big_flag = pygame.transform.smoothscale(small_flag, size)
+        self._bigflags[cache_key] = big_flag
+        return big_flag
 
     def setwindowsize(self, window_size):
         self.window_size = window_size
@@ -870,6 +895,16 @@ class InGameUI:
                 primary=False
             )
             y_cursor += 80
+
+        elif self._selectedmapcountry and not self._countrymenutarget:
+            big_flag = self._get_big_flag(self._selectedmapcountry, size=(200, 150))
+            y_cursor = content_rect.y + 12
+            if big_flag:
+                flag_x = content_rect.x + (content_rect.width - big_flag.get_width()) // 2
+                surface.blit(big_flag, (flag_x, y_cursor))
+                y_cursor += big_flag.get_height() + 16
+            name_surf = self.title_font.render(str(self._selectedmapcountry), True, (240, 240, 240))
+            surface.blit(name_surf, (content_rect.x, y_cursor))
         elif selected_tab == "RECRUIT":
             # place recruit action near troop decision buttons
             self._recruit_action_rect.topleft = (content_rect.x, self._split_rect.y - 44)
