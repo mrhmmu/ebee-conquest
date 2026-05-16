@@ -32,5 +32,81 @@
             "Bhumjaithai Party",
             "United Thai Nation Party"
         ]
+    },
+    {
+        "Country": "Indonesia",
+        "Leader": "Prabowo Subianto",
+        "LeadingParty": "Gerindra",
+        "MajorPoliticalParties": [
+            "Gerindra",
+            "PDI-P",
+            "Golkar",
+            "PKB",
+            "NasDem"
+        ]
+    },
+    {
+        "Country": "Brunei",
+        "Leader": "Hassanal Bolkiah",
+        "LeadingParty": "Absolute Monarchy",
+        "MajorPoliticalParties": [
+            "National Development Party"
+        ]
+    },
+    {
+        "Country": "Philippines",
+        "Leader": "Bongbong Marcos",
+        "LeadingParty": "Partido Federal ng Pilipinas",
+        "MajorPoliticalParties": [
+            "Partido Federal ng Pilipinas",
+            "Lakas-CMD",
+            "Liberal Party",
+            "Nacionalista Party"
+        ]
+    },
+    {
+        "Country": "Vietnam",
+        "Leader": "To Lam",
+        "LeadingParty": "Communist Party of Vietnam",
+        "MajorPoliticalParties": [
+            "Communist Party of Vietnam"
+        ]
+    },
+    {
+        "Country": "Timor_Leste",
+        "Leader": "Xanana Gusmao",
+        "LeadingParty": "CNRT",
+        "MajorPoliticalParties": [
+            "CNRT",
+            "Fretilin",
+            "PD"
+        ]
+    },
+    {
+        "Country": "Cambodia",
+        "Leader": "Hun Manet",
+        "LeadingParty": "Cambodian People's Party",
+        "MajorPoliticalParties": [
+            "Cambodian People's Party",
+            "FUNCINPEC",
+            "Khmer Will Party"
+        ]
+    },
+    {
+        "Country": "Laos",
+        "Leader": "Sonexay Siphandone",
+        "LeadingParty": "Lao People's Revolutionary Party",
+        "MajorPoliticalParties": [
+            "Lao People's Revolutionary Party"
+        ]
+    },
+    {
+        "Country": "Myanmar",
+        "Leader": "Min Aung Hlaing",
+        "LeadingParty": "State Administration Council",
+        "MajorPoliticalParties": [
+            "Union Solidarity and Development Party",
+            "National League for Democracy"
+        ]
     }
 ]
