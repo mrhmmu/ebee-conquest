@@ -1,0 +1,48 @@
+{
+  "id": "energy",
+  "label": "Energy",
+  "nodes": [
+    {
+      "id": "basic_grid",
+      "label": "Basic Power Grid",
+      "cost": 40,
+      "col": 1, "row": 0,
+      "prereqs": []
+    },
+    {
+      "id": "fossil_fuels",
+      "label": "Fossil Fuels",
+      "cost": 70,
+      "col": 0, "row": 1,
+      "prereqs": ["basic_grid"]
+    },
+    {
+      "id": "nuclear_power",
+      "label": "Nuclear Power",
+      "cost": 150,
+      "col": 2, "row": 1,
+      "prereqs": ["basic_grid"]
+    },
+    {
+      "id": "solar_technology",
+      "label": "Solar Technology",
+      "cost": 100,
+      "col": 0, "row": 2,
+      "prereqs": ["fossil_fuels"]
+    },
+    {
+      "id": "fusion_research",
+      "label": "Fusion Research",
+      "cost": 400,
+      "col": 2, "row": 2,
+      "prereqs": ["nuclear_power"]
+    },
+    {
+      "id": "renewable_mastery",
+      "label": "Renewable Mastery",
+      "cost": 200,
+      "col": 1, "row": 3,
+      "prereqs": ["solar_technology", "fusion_research"]
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "id": "semiconductors",
+  "label": "Semiconductors",
+  "nodes": [
+    {
+      "id": "basic_electronics",
+      "label": "Basic Electronics",
+      "cost": 50,
+      "col": 1, "row": 0,
+      "prereqs": []
+    },
+    {
+      "id": "integrated_circuits",
+      "label": "Integrated Circuits",
+      "cost": 100,
+      "col": 0, "row": 1,
+      "prereqs": ["basic_electronics"]
+    },
+    {
+      "id": "microprocessors",
+      "label": "Microprocessors",
+      "cost": 140,
+      "col": 2, "row": 1,
+      "prereqs": ["basic_electronics"]
+    },
+    {
+      "id": "advanced_chips",
+      "label": "Advanced Chips",
+      "cost": 220,
+      "col": 0, "row": 2,
+      "prereqs": ["integrated_circuits"]
+    },
+    {
+      "id": "ai_research",
+      "label": "AI Research",
+      "cost": 350,
+      "col": 2, "row": 2,
+      "prereqs": ["microprocessors"]
+    },
+    {
+      "id": "quantum_computing",
+      "label": "Quantum Computing",
+      "cost": 500,
+      "col": 1, "row": 3,
+      "prereqs": ["advanced_chips", "ai_research"]
+    }
+  ]
+}

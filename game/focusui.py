@@ -5,7 +5,7 @@ import pygame
 
 class FocusTreeView:
     def __init__(self):
-        self.data = {"name": "Focus Tree", "focuses": []}
+        self.data = {"name": "National Policy", "focuses": []}
         self.isopen = False
         self.detailid = None
         self.noderects: dict[str, pygame.Rect] = {} # focusid to screen rect
@@ -29,7 +29,7 @@ class FocusTreeView:
         self.viewsize = None
 
     def setdata(self, data):
-        self.data = data or {"name": "Focus Tree", "focuses": []} # check for key
+        self.data = data or {"name": "National Policy", "focuses": []} # check for key
         newkey = self.makekey() # make a key based on the focuses data, so we can detect changes and reset layout if needed
         if newkey != self.datakey:
             self.datakey = newkey
@@ -202,7 +202,7 @@ class FocusTreeView:
 
 
         self.closerect = pygame.Rect(viewrect.right - 150, 18, 118, 34)
-        title = str(self.data.get("name") or "Focus Tree")
+        title = str(self.data.get("name") or "National Policy").replace("Focus Tree", "National Policy")
         surface.blit(titlefont.render(title, True, (238, 220, 165)), (32, 22))
         self.drawbutton(surface, self.closerect, True, "Back", font)
 

@@ -1,0 +1,125 @@
+{
+  "id": "missiles",
+  "label": "Missiles",
+  "nodes": [
+    {
+      "id": "basic_rocketry",
+      "label": "Basic Rocketry",
+      "cost": 200,
+      "col": 2, "row": 0,
+      "prereqs": []
+    },
+    {
+      "id": "solid_fuel_propulsion",
+      "label": "Solid Fuel Propulsion",
+      "cost": 350,
+      "col": 1, "row": 1,
+      "prereqs": ["basic_rocketry"]
+    },
+    {
+      "id": "guidance_systems",
+      "label": "Guidance Systems",
+      "cost": 400,
+      "col": 3, "row": 1,
+      "prereqs": ["basic_rocketry"]
+    },
+    {
+      "id": "short_range_ballistic",
+      "label": "Short-Range Ballistic Missiles",
+      "cost": 600,
+      "col": 1, "row": 2,
+      "prereqs": ["solid_fuel_propulsion", "guidance_systems"]
+    },
+    {
+      "id": "anti_ship_missiles",
+      "label": "Anti-Ship Missiles",
+      "cost": 650,
+      "col": 3, "row": 2,
+      "prereqs": ["guidance_systems"]
+    },
+    {
+      "id": "cruise_missiles",
+      "label": "Cruise Missiles",
+      "cost": 800,
+      "col": 4, "row": 2,
+      "prereqs": ["guidance_systems"]
+    },
+    {
+      "id": "medium_range_ballistic",
+      "label": "Medium-Range Ballistic Missiles",
+      "cost": 900,
+      "col": 1, "row": 3,
+      "prereqs": ["short_range_ballistic"]
+    },
+    {
+      "id": "mobile_launcher_platforms",
+      "label": "Mobile Launcher Platforms",
+      "cost": 850,
+      "col": 0, "row": 3,
+      "prereqs": ["short_range_ballistic"]
+    },
+    {
+      "id": "land_attack_cruise",
+      "label": "Land-Attack Cruise Missiles",
+      "cost": 1000,
+      "col": 4, "row": 3,
+      "prereqs": ["cruise_missiles"]
+    },
+    {
+      "id": "mram",
+      "label": "Multi-Rocket Artillery Systems",
+      "cost": 750,
+      "col": 2, "row": 3,
+      "prereqs": ["short_range_ballistic", "guidance_systems"]
+    },
+    {
+      "id": "intermediate_ballistic",
+      "label": "Intermediate-Range Ballistic Missiles",
+      "cost": 1400,
+      "col": 1, "row": 4,
+      "prereqs": ["medium_range_ballistic", "land_attack_cruise"]
+    },
+    {
+      "id": "air_launched_cruise",
+      "label": "Air-Launched Cruise Missiles",
+      "cost": 1300,
+      "col": 4, "row": 4,
+      "prereqs": ["land_attack_cruise"]
+    },
+    {
+      "id": "mrv",
+      "label": "Multiple Reentry Vehicles",
+      "cost": 2000,
+      "col": 1, "row": 5,
+      "prereqs": ["intermediate_ballistic"]
+    },
+    {
+      "id": "hypersonic_glide_vehicles",
+      "label": "Hypersonic Glide Vehicles",
+      "cost": 3000,
+      "col": 2, "row": 5,
+      "prereqs": ["intermediate_ballistic", "air_launched_cruise"]
+    },
+    {
+      "id": "icbm",
+      "label": "Intercontinental Ballistic Missiles",
+      "cost": 3500,
+      "col": 1, "row": 6,
+      "prereqs": ["mrv", "hypersonic_glide_vehicles"]
+    },
+    {
+      "id": "orbital_strike_platforms",
+      "label": "Orbital Strike Platforms",
+      "cost": 5000,
+      "col": 2, "row": 7,
+      "prereqs": ["icbm"]
+    },
+    {
+      "id": "next_generation_weapons",
+      "label": "Next-Generation Weapons",
+      "cost": 6000,
+      "col": 2, "row": 8,
+      "prereqs": ["orbital_strike_platforms"]
+    }
+  ]
+}
