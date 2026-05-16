@@ -186,6 +186,7 @@ while run:
 
             elif menu == 'main':
                 if button_m < mouse[0] < button_m + button_width and button_y_positions['new_game'] < mouse[1] < button_y_positions['new_game'] + button_height:
+                    button_click_sound.play()
                     main(is_fullscreen=is_fullscreen)
                     pygame.quit()
                     sys.exit()
