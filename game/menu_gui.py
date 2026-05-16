@@ -158,6 +158,7 @@ while run:
                     pygame.mixer.music.set_volume(volume / 100)
 
                 if button_m < mouse[0] < button_m + button_width and 530 < mouse[1] < 583:
+                    button_click_sound.play()
                     remove_cache() 
 
 
