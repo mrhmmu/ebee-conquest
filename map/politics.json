@@ -91,5 +91,22 @@
             "FUNCINPEC",
             "Khmer Will Party"
         ]
+    },
+    {
+        "Country": "Laos",
+        "Leader": "Sonexay Siphandone",
+        "LeadingParty": "Lao People's Revolutionary Party",
+        "MajorPoliticalParties": [
+            "Lao People's Revolutionary Party"
+        ]
+    },
+    {
+        "Country": "Myanmar",
+        "Leader": "Min Aung Hlaing",
+        "LeadingParty": "State Administration Council",
+        "MajorPoliticalParties": [
+            "Union Solidarity and Development Party",
+            "National League for Democracy"
+        ]
     }
 ]
