@@ -117,8 +117,8 @@ class InGameUI:
         self.title_font = pygame.font.SysFont("Verdana", 16, bold=True)
         self.font = pygame.font.SysFont("Verdana", 14)
         
-        button_click_sound = pygame.mixer.Sound("game/sounds/click.wav")
-        button_click_sound.set_volume(0.4)
+        self.ui_click_sound = pygame.mixer.Sound("game/sounds/click.wav")
+        self.ui_click_sound.set_volume(0.4)
 
         self.leftbar_width = 180
         self.topbar_height = 50
