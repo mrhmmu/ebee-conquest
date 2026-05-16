@@ -446,7 +446,8 @@ class InGameUI:
         # bottom tabs
         for item, rect in (self.bottom_buttons.item_rects or {}).items():
             if rect.collidepoint(pos):
-        
+                
+                self.ui_click_sound.play()
                 self.bottom_buttons.set_selected(item)
                 return None
 
