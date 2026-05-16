@@ -3,22 +3,11 @@ import os
 
 import pygame
 
+from engine.gui import gui_drawtroopcountbadge, gui_mergetroopbadgeentries
 from .focusui import FocusTreeView
+from .researchui import ResearchTreeView
 
 ctypes.windll.user32.SetProcessDPIAware()
-
-def _badge_text_color(backgroundcolor):
-    r, g, b = (backgroundcolor + (0, 0, 0))[:3] if isinstance(backgroundcolor, tuple) else (0, 0, 0)
-
-    yellowish = r >= 200 and g >= 180 and b <= 90
-    orangish = r >= 200 and 100 <= g <= 190 and b <= 90
-
-    if yellowish or orangish:
-        return (0, 0, 0)
-
-    brightness = (r * 0.299 + g * 0.587 + b * 0.114)
-    return (0, 0, 0) if brightness > 186 else (255, 255, 255)
-
 
 
 class Panel:
@@ -81,7 +70,7 @@ class BottomButtons:
             self.selected = (self.items[-1] if self.items else None)
 
     def set_selected(self, item: str | None):
-        if item in self.items:
+        if item is None or item in self.items:
             self.selected = item
 
     def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos):
@@ -123,6 +112,10 @@ class InGameUI:
     actionstartfocus = "startfocus"
     actionpausemenu = "pausemenu"
     actionquitgame = "quitgame"
+    actionweapon1 = "weapon_1"
+    actionweapon2 = "weapon_2"
+    actionweapon3 = "weapon_3"
+    actionweapon4 = "weapon_4"
 
     def __init__(self, window_size):
         self.window_size = window_size
@@ -147,6 +140,9 @@ class InGameUI:
         self.recruitamount = 0
         self.recruitenabled = False
         self._countrymenutarget = None
+        self._selectedmapcountry = None
+        self._selected_country_stats = {}
+        self._bigflags = {}
         self._countriesatwarset = set()
         self._selectedtroopentries = []
         self._frontlineplacementmode = False
@@ -154,6 +150,7 @@ class InGameUI:
         self._hovertext = None
         self._hovermousepos = (0, 0)
         self.focusview = FocusTreeView()
+        self.researchview = ResearchTreeView()
         self.pausemenuopen = False
         self.active_left_tab = None
         self.warprogressopen = False
@@ -171,6 +168,8 @@ class InGameUI:
         self._split_rect = pygame.Rect(0, 0, 10, 10)
         self._merge_rect = pygame.Rect(0, 0, 10, 10)
         self._frontline_rect = pygame.Rect(0, 0, 10, 10)
+        self._research_btn_rects = [pygame.Rect(0, 0, 10, 10) for _ in range(4)]
+        self._research_back_rect = pygame.Rect(0, 0, 10, 10)
 
         self.leftbar = LeftBar(pygame.Rect(0, 0, 10, 10))
         self.bottom_buttons = BottomButtons(pygame.Rect(0, 0, 10, 10))
@@ -196,7 +195,7 @@ class InGameUI:
                 "RECRUIT",
             ]
         )
-        self.bottom_buttons.set_selected("RESEARCH")
+        self.bottom_buttons.set_selected(None)
 
         self.topbar = Panel(pygame.Rect(0, 0, 10, 10), (0, 0, 0))
         self.rightbar = Panel(pygame.Rect(0, 0, 10, 10), (0, 0, 0))
@@ -206,29 +205,40 @@ class InGameUI:
         self.map_rect = pygame.Rect(0, 0, 10, 10)
         self.applylayout()
 
+
+    
+
     def _load_flags(self):
         flags = {}
-        flag_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "flags"))
+        flag_path = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "flags")
+        )
+
         if not os.path.isdir(flag_path):
             return flags
 
         for filename in os.listdir(flag_path):
             if not filename.lower().endswith(".png"):
                 continue
-            filepath = os.path.join(flag_path, filename)
-            if not os.path.isfile(filepath):
-                continue
 
-            country_key = os.path.splitext(filename)[0].strip().lower().replace(" ", "_").replace("-", "_")
-            if not country_key:
-                continue
+            filepath = os.path.join(flag_path, filename)
+
+            country_key = (
+                os.path.splitext(filename)[0]
+                .strip()
+                .lower()
+                .replace(" ", "_")
+                .replace("-", "_")
+            )
 
             try:
                 img = pygame.image.load(filepath).convert_alpha()
+
+                # Store ORIGINAL high-resolution image
+                flags[country_key] = img
+
             except pygame.error:
                 continue
-
-            flags[country_key] = pygame.transform.scale(img, (20, 14))
 
         return flags
 
@@ -276,7 +286,7 @@ class InGameUI:
 
         self.topbar.rect = pygame.Rect(0, 0, window_width, self.topbar_height)
 
-        # chrome visibility depends on phase + whether right tab has content
+        
         if self.gamephase == "choosecountry":
             show_left = False
             show_bottom = False
@@ -289,6 +299,7 @@ class InGameUI:
                 or self._selectedtroopentries
                 or self.bottom_buttons.selected == "RECRUIT"
                 or self.active_left_tab == "COMBAT"
+                or self._selectedmapcountry
             )
 
         left_w = self.leftbar_width if show_left else 0
@@ -333,11 +344,33 @@ class InGameUI:
 
         # troop decision buttons at the bottom of right panel
         btn_w = (content_w - 20) // 3
-        btn_h = 34
+        btn_h = 50
         btn_y = (self.rightbar.rect.bottom - 12 - btn_h) if self.rightbar.rect.width else (self.map_rect.bottom - 12 - btn_h)
         self._split_rect = pygame.Rect(content_x, btn_y, btn_w, btn_h)
         self._merge_rect = pygame.Rect(content_x + btn_w + 10, btn_y, btn_w, btn_h)
         self._frontline_rect = pygame.Rect(content_x + (btn_w + 10) * 2, btn_y, btn_w, btn_h)
+        btn_w = 400
+        btn_h = 60
+        btn_gap = 20
+        total_h = 4 * btn_h + 3 * btn_gap
+        start_x = (window_width - btn_w) // 2
+        start_y = (window_height - total_h) // 2
+        for i in range(4):
+            self._research_btn_rects[i] = pygame.Rect(
+                start_x,
+                start_y + i * (btn_h + btn_gap),
+                btn_w,
+                btn_h
+            )
+
+        last_weapon_rect = self._research_btn_rects[3]
+
+        back_w = 120
+        back_h = 40
+        back_x = start_x + (btn_w - back_w) // 2 
+        back_y = last_weapon_rect.bottom + 20
+
+        self._research_back_rect = pygame.Rect(back_x, back_y, back_w, back_h)
         menu_w = min(320, max(220, window_width - 80))
         menu_h = 170
         menu_x = max(0, (window_width - menu_w) // 2)
@@ -345,6 +378,28 @@ class InGameUI:
         self._pausemenu_rect = pygame.Rect(menu_x, menu_y, menu_w, menu_h)
         self._pausequit_rect = pygame.Rect(menu_x + (menu_w - 150) // 2, menu_y + menu_h - 52, 150, 40)
         self._war_progress_rect = pygame.Rect(content_x, content_y + 40, content_w, 34)
+
+
+    def select_map_country(self, country_name: str | None):
+        self._selectedmapcountry = country_name
+        if country_name:
+            self._countrymenutarget = None
+            self._selectedtroopentries = []
+        self.applylayout()
+
+    def _get_big_flag(self, country_name, size=(240, 144)):
+        if not country_name:
+            return None
+        key = str(country_name).strip().lower().replace(" ", "_").replace("-", "_")
+        cache_key = (key, size)
+        if cache_key in self._bigflags:
+            return self._bigflags[cache_key]
+        small_flag = self._flags.get(key)
+        if not small_flag:
+            return None
+        big_flag = pygame.transform.smoothscale(small_flag, size)
+        self._bigflags[cache_key] = big_flag
+        return big_flag
 
     def setwindowsize(self, window_size):
         self.window_size = window_size
@@ -374,6 +429,7 @@ class InGameUI:
         troopbadgelist,
         focusview=None,
         warprogressdata=None,
+        selected_country_stats=None,
     ):
         self.gamephase = gamephase
         self.pendingcountry = pendingcountry
@@ -395,6 +451,9 @@ class InGameUI:
         # reflow after state changes (tab visibility depends on selection/menu)
         if warprogressdata is not None:
             self._warprogressdata = warprogressdata
+        if selected_country_stats is not None:
+            self._selected_country_stats = selected_country_stats
+
         self.applylayout()
 
         # cache active manpower (sum troops controlled by player) only when inputs change
@@ -435,6 +494,9 @@ class InGameUI:
         if self.focusview.isopen:
             return self.focusview.handleevent(event)
 
+        if self.researchview.isopen:
+            return self.researchview.handleevent(event)
+
         if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
             return None
 
@@ -454,28 +516,33 @@ class InGameUI:
                     return self.actiontogglefocuspanel
                 return None
 
-        # bottom tabs
         for item, rect in (self.bottom_buttons.item_rects or {}).items():
             if rect.collidepoint(pos):
-        
                 self.bottom_buttons.set_selected(item)
+                self.applylayout()
+                if item == "RESEARCH":
+                    self.researchview.toggleview()
                 return None
 
-        # bottom end turn
+      
         if self._endturn_rect.collidepoint(pos):
             return self.actionendturn
 
         selected_tab = self.bottom_buttons.selected
 
-        # right panel: country menu overrides all tabs
-        if self._countrymenutarget:
-            if self._declarewar_rect.collidepoint(pos):
-                alreadyatwar = self._countrymenutarget in self._countriesatwarset
-                if not alreadyatwar:
-                    return self.actiondeclarewar
+        if selected_tab == "RESEARCH" and not self._countrymenutarget:
+
+            if self._research_back_rect.collidepoint(pos):
+                self.bottom_buttons.set_selected(None)
+                self.applylayout()
+                return "back_from_research"
+
+            for i in range(4):
+                if self._research_btn_rects[i].collidepoint(pos):
+                    return getattr(self, f"actionweapon{i+1}")
+
             return None
 
-        # right panel: recruit action only visible in RECRUIT tab
 
         if self.active_left_tab == "COMBAT" and not self._countrymenutarget:
             if self._war_progress_rect.collidepoint(pos):
@@ -487,7 +554,7 @@ class InGameUI:
                     return self.actionrecruit
                 return None
 
-        # troop selection actions (only in RECRUIT tab and only when troops > 0)
+      
         if selected_tab == "RECRUIT" and self._selectedtroopentries:
             selected = [e for e in self._selectedtroopentries if isinstance(e, dict)]
             totaltroops = sum(max(0, int(e.get("troops", 0))) for e in selected)
@@ -507,11 +574,15 @@ class InGameUI:
        
         if self.focusview.pointerover(mouseposition):
             return True
+        if self.researchview.pointerover(mouseposition):
+            return True
         if self._endturn_rect.collidepoint(mouseposition):
             return True
         if self.leftbar.rect.collidepoint(mouseposition):
             return True
         if self.topbar.rect.collidepoint(mouseposition):
+            return True
+        if self.bottom_buttons.selected == "RESEARCH" and not self._countrymenutarget:
             return True
         if self.rightbar.rect.collidepoint(mouseposition):
             return True
@@ -521,6 +592,10 @@ class InGameUI:
 
     def draw(self, surface: pygame.Surface):
         mouse = pygame.mouse.get_pos()
+
+
+
+    
 
         if self.gamephase == "choosecountry":
             # minimal UI only during choosecountry
@@ -698,7 +773,10 @@ class InGameUI:
         flag_img = None
         if self.playercountry:
             key = str(self.playercountry).strip().lower().replace(" ", "_").replace("-", "_")
-            flag_img = self._flags.get(key)
+            flag_img = pygame.transform.smoothscale(
+                self._flags.get(key),
+                (20, 14)
+            ) if self._flags.get(key) else None
         stats_x = info_x + title_surface.get_width() + 18
         stats_y = info_y + 2
         if flag_img:
@@ -714,7 +792,8 @@ class InGameUI:
         surface.blit(self.font.render(stats_text, True, (220, 220, 220)), (stats_x, stats_y + 2))
 
         # troop badges on top of the map (map-local centers need viewport offset)
-        for entry in self._troopbadgelist:
+        visiblebadgelist = gui_mergetroopbadgeentries(self._troopbadgelist, self.font, self._flags)
+        for entry in visiblebadgelist:
             if not isinstance(entry, dict):
                 continue
             center = entry.get("center")
@@ -722,31 +801,17 @@ class InGameUI:
                 continue
             cx = int(center[0] + self.map_rect.x)
             cy = int(center[1] + self.map_rect.y)
-            troops = int(entry.get("troops", 0))
-            country_name = entry.get("country")
-            country_key = str(country_name or "").strip().lower().replace(" ", "_").replace("-", "_")
-            flag_img = self._flags.get(country_key) if country_key else None
-
-            background = entry.get("backgroundcolor", (0, 0, 0))
-            text_color = _badge_text_color(background)
-            label = self.font.render(str(troops), True, text_color)
-            pad_x, pad_y = 6, 4
-            spacing = 4
-            content_w = label.get_width() + (flag_img.get_width() + spacing if flag_img else 0)
-            content_h = max(label.get_height(), flag_img.get_height() if flag_img else 0)
-            rect = pygame.Rect(0, 0, content_w + pad_x * 2, content_h + pad_y * 2)
-            rect.center = (cx, cy)
-            background = entry.get("backgroundcolor", (0, 0, 0))
-            border = entry.get("bordercolor", (165, 165, 165))
-            pygame.draw.rect(surface, background, rect, border_radius=4)
-            pygame.draw.rect(surface, border, rect, 1, border_radius=4)
-
-            draw_x = rect.x + pad_x
-            center_y = rect.y + rect.height // 2
-            if flag_img:
-                surface.blit(flag_img, (draw_x, center_y - flag_img.get_height() // 2))
-                draw_x += flag_img.get_width() + spacing
-            surface.blit(label, (draw_x, center_y - label.get_height() // 2))
+            gui_drawtroopcountbadge(
+                surface,
+                (cx, cy),
+                entry.get("troops", 0),
+                self.font,
+                self._flags,
+                entry.get("country"),
+                backgroundcolor=entry.get("backgroundcolor", (0, 0, 0)),
+                bordercolor=entry.get("bordercolor", (165, 165, 165)),
+                rows=entry.get("rows"),
+            )
 
         # hover tooltip (full-window coords) must be on top of badges
         if self._hovertext:
@@ -800,6 +865,11 @@ class InGameUI:
                 self._draw_pausemenu(surface)
             return
 
+        if self.researchview.isopen:
+            self.researchview.draw(surface, self.title_font, self.font, mouse)
+            if self.pausemenuopen:
+                self._draw_pausemenu(surface)
+            return
 
         selected_tab = self.bottom_buttons.selected
         if not self.rightbar.rect.width:
@@ -870,12 +940,42 @@ class InGameUI:
                 primary=False
             )
             y_cursor += 80
+
+        elif self._selectedmapcountry and not self._countrymenutarget:
+            big_flag = self._get_big_flag(self._selectedmapcountry, size=(240, 144))
+            y_cursor = content_rect.y + 45
+            if big_flag:
+                flag_x = content_rect.x + (content_rect.width - big_flag.get_width()) // 2
+                surface.blit(big_flag, (flag_x, y_cursor))
+                y_cursor += big_flag.get_height() + 16
+
+            # Country name
+            name_surf = self.title_font.render(str(self._selectedmapcountry), True, (240, 240, 240))
+            surface.blit(name_surf, (content_rect.x, y_cursor))
+            y_cursor += name_surf.get_height() + 8
+
+            # Stats block
+            stats = self._selected_country_stats or {}
+            lines = [
+                f"Population: {self._format_number(stats.get('population', 0))}",
+                f"Manpower:   {self._format_number(stats.get('manpower', 0))}",
+                f"Stability:  {self._format_decimal(stats.get('stability', 0))}%",
+                f"Leader:     {stats.get('leader', 'Unknown')}",
+            ]
+            for line in lines:
+                surface.blit(self.font.render(line, True, (212, 212, 212)), (content_rect.x, y_cursor))
+                y_cursor += 20
+
+        
         elif selected_tab == "RECRUIT":
-            # place recruit action near troop decision buttons
+           
             self._recruit_action_rect.topleft = (content_rect.x, self._split_rect.y - 44)
             recruit_label = f"RECRUIT +{int(self.recruitamount)}"
             draw_btn(self._recruit_action_rect, self.recruitenabled, recruit_label, primary=True)
             y_cursor = max(y_cursor, content_rect.y + 24)
+
+
+      
 
         # Troop info + decision buttons only show in RECRUIT tab, and only when troops > 0
         if selected_tab == "RECRUIT" and not self._countrymenutarget:

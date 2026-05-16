@@ -9,8 +9,23 @@ from svgelements import Path
 import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
-#TODO - OPTIMIZATION: consider using numpy for heavy geometry calculations and data handling, especially for large maps with many provinces and complex shapes. This could significantly improve performance for operations like point-in-polygon tests, polygon transformations, and adjacency graph construction.
-#Local module
+LEADERS = {
+    "Malaysia": "Anwar Ibrahim",
+    "Singapore": "Lawrence Wong",
+    "Indonesia": "Prabowo Subianto",
+    "Thailand": "Srettha Thavisin",
+    "Philippines": "Bongbong Marcos",
+    "Vietnam": "To Lam",
+    "Myanmar": "Min Aung Hlaing",
+    "Cambodia": "Hun Manet",
+    "Laos": "Thongloun Sisoulith",
+    "Brunei": "Hassanal Bolkiah",
+    "Timor_Leste" : "José Ramos-Horta"
+}
+
+
+
+
 from game.ingame_ui import InGameUI
 from game.focuseffects import FocusEffectContext
 from game.focusloader import loadfocustreeforcountry
@@ -295,12 +310,7 @@ def getbadgehitprovinceid(mouseposition, badgehitlist):
             return badgeentry["provinceid"]
     return None
 
-with open(countrydatafilepath, "r", encoding="utf-8") as f:
-    countries_full = json.load(f)
-# ESO optimization 22/04
-# O(c*s) --> O(1)
-# build state lookup once and reuse for hover data
-state_data_lookup = esomodule.buildstatedatalookup(countries_full)
+
 
 
     # for countryindex, countryentry in enumerate(rawdata):
@@ -838,10 +848,42 @@ def main(eventbus=None, is_fullscreen=False):
     
 
     logstartupdiagnostics(startupbegintimestamp, "states loaded", f"count={len(stateshapelist)}")
+
+    
+    statetocountrylookup, countrytocolorlookup = loadcountrydata(countrydatafilepath)
+
+    with open(countrydatafilepath, "r", encoding="utf-8") as f:
+        countries_raw = json.load(f)
+
+    def parse_population(text):
+        text = str(text).strip().lower().replace(" ", "").replace(",", "")
+        if "million" in text:
+            return int(float(text.replace("million", "")) * 1_000_000)
+        if "billion" in text:
+            return int(float(text.replace("billion", "")) * 1_000_000_000)
+        try:
+            return int(float(text))
+        except ValueError:
+            return 0
+
+    country_stats_lookup = {}
+    for entry in countries_raw:
+        name = str(entry.get("Country", "")).strip()
+        if not name:
+            continue
+        country_stats_lookup[name] = {
+            "population": parse_population(entry.get("population", 0)),
+            "manpower": parse_population(entry.get("manpower", 0)),
+            "stability": float(str(entry.get("stability", 0)).strip() or 0),
+            "leader": LEADERS.get(name, "Unknown"),
+            "leading_party": str(entry.get("LeadingParty", "")).strip(),
+            "parties": entry.get("MajorPoliticalParties", []),
+        }
+       
+    
     statetocountrylookup, countrytocolorlookup = loadcountrydata(countrydatafilepath)
     allowedstateidset = set(statetocountrylookup.keys())
-
-
+    state_data_lookup = esomodule.buildstatedatalookup(stateshapelist)
     logstartupdiagnostics(
         startupbegintimestamp,
         "countries loaded",
@@ -1532,8 +1574,7 @@ def main(eventbus=None, is_fullscreen=False):
 
 
 
-    #SCRIPT LOADING
-        updatescriptengine()
+   
 
     def handlewarended(payload):
         firstcountry = None
@@ -1761,7 +1802,7 @@ def main(eventbus=None, is_fullscreen=False):
     troopbadgefont = pygame.font.SysFont("Arial", 16)
     countrylabelfont = pygame.font.SysFont("Arial", 18, bold=True)
     countrylabelcache = {}
-
+    current_stats = {}
     dragselectstart = None
     dragselectcurrent = None
     isdragselecting = False
@@ -2123,30 +2164,7 @@ def main(eventbus=None, is_fullscreen=False):
                        "rect": troopbadgerect,
                    })
 
-
-           merged = []
-           MERGE_DISTANCE = 60 / zoomvalue
-
-           for entry in troopbadgelist_raw:
-              ex, ey = entry["center"]
-              added = False
-
-              for group in merged:
-                  gx, gy = group["center"]
-
-                  dx = ex - gx
-                  dy = ey - gy
-                  dist = (dx * dx + dy * dy) ** 0.5
-
-                  if dist < MERGE_DISTANCE:
-                      group["troops"] += entry["troops"]
-                      added = True
-                      break
-
-              if not added:
-                  merged.append(entry)
-
-           troopbadgelist = merged
+           troopbadgelist = troopbadgelist_raw
            
 
         if gamephase == "play" and movementorderlist:
@@ -2304,6 +2322,28 @@ def main(eventbus=None, is_fullscreen=False):
         if gamephase == "play" and warpairset and runtimeui.warprogressopen:
             warprogressdata = buildwarprogressdata()
 
+            
+                
+        current_stats = {}
+        if runtimeui._selectedmapcountry:
+            selected_country = runtimeui._selectedmapcountry
+            base_stats = country_stats_lookup.get(selected_country, {})
+            
+            total_pop = 0
+            total_manpower = 0
+            for prov in provincemap.values():
+                if prov.get("country") == selected_country:
+                    total_pop += int(prov.get("population", 0))
+                    total_manpower += int(prov.get("troops", 0))
+            
+            current_stats = {
+                "population": total_pop,  
+                "manpower": total_manpower,  
+                "stability": base_stats.get("stability", 50.0),
+                "leader": base_stats.get("leader", "Unknown"),
+            }
+       
+        
         runtimeui.sync(
             gamephase,
             pendingcountry,
@@ -2327,6 +2367,7 @@ def main(eventbus=None, is_fullscreen=False):
             troopbadgelist,
             focustree.viewdata(),
             warprogressdata=warprogressdata,
+            selected_country_stats=current_stats,
         )
         runtimeui.update(elapsedseconds)
         runtimeui.draw(screen)
@@ -2419,6 +2460,7 @@ def main(eventbus=None, is_fullscreen=False):
                             "turn": currentturnnumber,
                         },
                     )
+                runtimeui.select_map_country(None)
                 countrymenutarget = None
                 continue
 
@@ -2477,6 +2519,21 @@ def main(eventbus=None, is_fullscreen=False):
                             "turn": currentturnnumber,
                         },
                     )
+                continue
+
+
+            if (
+                isinstance(uiaction, tuple)
+                and len(uiaction) == 2
+                and uiaction[0] == "research_node"
+                and gamephase == "play"
+            ):
+                node_id = uiaction[1]
+                eventbus.emit("research_completed", {
+                    "country": playercountry,
+                    "node_id": node_id,
+                    "turn": currentturnnumber,
+                })
                 continue
 
 
@@ -2624,6 +2681,10 @@ def main(eventbus=None, is_fullscreen=False):
 
                     continue
 
+                elif gamephase == "play":
+                    runtimeui.select_map_country(None)
+                    current_stats = {}
+
                 if gamephase == "play" and frontlineplacementmode:
                     if hoveredfrontlineedgekey and hoveredfrontlineedgekey in frontlineedgebykey:
                         frontlineresult = createfrontline(
@@ -2719,6 +2780,8 @@ def main(eventbus=None, is_fullscreen=False):
                         selectedprovinceid = None
                         selectedprovinceidset = set()
                         routepreviewset = set()
+                    
+                    current_stats = {}
 
                     dragselectstart = None
                     dragselectcurrent = None
@@ -2817,6 +2880,20 @@ def main(eventbus=None, is_fullscreen=False):
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3: # right click for move orders
                 if devconsole.visible or gamephase != "play" or frontlineplacementmode:
                     continue
+
+
+                if hoveredstateid is not None and hoveredprovinceid is None:
+                    selectedstateobject = stateobjectlookup.get(hoveredstateid)
+                    if selectedstateobject:
+                        destinationcountry = selectedstateobject.get("controllercountry", selectedstateobject.get("country"))
+                        if destinationcountry:
+                            runtimeui.select_map_country(destinationcountry)
+                            countrymenutarget = None
+                            continue
+
+                if hoveredstateid is None and hoveredprovinceid is None:
+                    runtimeui.select_map_country(None)
+                    countrymenutarget = None
 
                 # Only open the country interaction menu when the click is on a state (no hovered province).
                 if hoveredprovinceid is None:
