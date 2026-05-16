@@ -63,5 +63,33 @@
             "Liberal Party",
             "Nacionalista Party"
         ]
-    } 
+    },
+    {
+        "Country": "Vietnam",
+        "Leader": "To Lam",
+        "LeadingParty": "Communist Party of Vietnam",
+        "MajorPoliticalParties": [
+            "Communist Party of Vietnam"
+        ]
+    },
+    {
+        "Country": "Timor_Leste",
+        "Leader": "Xanana Gusmao",
+        "LeadingParty": "CNRT",
+        "MajorPoliticalParties": [
+            "CNRT",
+            "Fretilin",
+            "PD"
+        ]
+    },
+    {
+        "Country": "Cambodia",
+        "Leader": "Hun Manet",
+        "LeadingParty": "Cambodian People's Party",
+        "MajorPoliticalParties": [
+            "Cambodian People's Party",
+            "FUNCINPEC",
+            "Khmer Will Party"
+        ]
+    }
 ]
