@@ -530,6 +530,8 @@ def processmovementorders(movementorderlist, provincemap, emit, currentturnnumbe
                             EngineEventType.COMBATRESOLVED,
                             {
                                 "provinceId": nextprovinceid,
+                                "attackerCountry": movingcountry,
+                                "defenderCountry": nextcountry,
                                 "attackersBefore": attackers,
                                 "defendersBefore": defenders,
                                 "attackersAfter": 0,
@@ -562,6 +564,8 @@ def processmovementorders(movementorderlist, provincemap, emit, currentturnnumbe
                             EngineEventType.COMBATRESOLVED,
                             {
                                 "provinceId": nextprovinceid,
+                                "attackerCountry": movingcountry,
+                                "defenderCountry": nextcountry,
                                 "attackersBefore": attackers,
                                 "defendersBefore": defenders,
                                 "attackersAfter": movementorder["amount"],

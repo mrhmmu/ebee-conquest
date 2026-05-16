@@ -627,7 +627,7 @@ def groupsubdivisionsbystate(provincelist, statelist):
         if parentstateid not in stateidset:
             continue
         province["parentid"] = parentstateid
-        province["victory_points"] = state.get("victory_points", 0)
+        province["victory_points"] = stateidset.get("victory_points", 0)
         groupedlookup[parentstateid].append(province)
         #print(province["id"], "parent", parentstateid)
     #print(groupedlookup)
@@ -1164,6 +1164,7 @@ def main(eventbus=None, is_fullscreen=False):
     countrybordersdirty = True
     countriesatwarset = set() # track countries at war
     warpairset = set()
+    warrecordlookup = {}
     countrymenutarget = None
 
     def normalizewarpair(firstcountry, secondcountry):
@@ -1199,6 +1200,209 @@ def main(eventbus=None, is_fullscreen=False):
                     aliaslookup[lowerknown] = knowntext
 
         return aliaslookup.get(countrytext.lower(), countrytext)
+
+    def safeint(value, default=0):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def getstatevictorypoints(stateid):
+        statedata = state_data_lookup.get(str(stateid or "").lower())
+        if not isinstance(statedata, dict):
+            return 0.0
+        return float(max(0, safeint(statedata.get("victory_points", 0), 0)))
+
+    def ensurewarrecord(firstcountry, secondcountry, aggressor=None, defender=None, turn=None):
+        normalizedpair = normalizewarpair(firstcountry, secondcountry)
+        if normalizedpair is None:
+            return None
+
+        # keep declaration metadata keyed by the normalized war pair.
+        record = warrecordlookup.get(normalizedpair)
+        if record is None:
+            record = {
+                "pair": normalizedpair,
+                "aggressor": aggressor or normalizedpair[0],
+                "defender": defender or normalizedpair[1],
+                "startturn": safeint(turn, currentturnnumber),
+                "casualties": {},
+            }
+            warrecordlookup[normalizedpair] = record
+        else:
+            if aggressor:
+                record["aggressor"] = aggressor
+            if defender:
+                record["defender"] = defender
+            if turn is not None and record.get("startturn") is None:
+                record["startturn"] = safeint(turn, currentturnnumber)
+
+        casualties = record.setdefault("casualties", {})
+        for country in normalizedpair:
+            casualties.setdefault(country, 0)
+        return record
+
+    def syncwarrecordswithpairs():
+        # mirror console edits so stale war records do not survive peace.
+        activepairset = set(warpairset)
+        for existingpair in list(warrecordlookup.keys()):
+            if existingpair not in activepairset:
+                del warrecordlookup[existingpair]
+
+        for firstcountry, secondcountry in activepairset:
+            ensurewarrecord(firstcountry, secondcountry)
+
+    def buildwarcountrymetrics():
+        totalvplookup = {}
+        controlledvplookup = {}
+        ownedcontrolledvplookup = {}
+        totalprovincelookup = {}
+        controlledprovincelookup = {}
+        ownedcontrolledprovincelookup = {}
+        fieldmanpowerlookup = {}
+
+        for stateshape in playablestateshapelist:
+            stateid = stateshape.get("id")
+            stateowner = statetocountrylookup.get(stateid) or stateshape.get("ownercountry", stateshape.get("country"))
+            statevp = getstatevictorypoints(stateid)
+            subdivisions = [
+                province for province in stateshape.get("subdivisions", ())
+                if isinstance(province, dict)
+            ]
+            provincecount = max(1, len(subdivisions))
+
+            if stateowner:
+                totalvplookup[stateowner] = totalvplookup.get(stateowner, 0.0) + statevp
+                totalprovincelookup[stateowner] = totalprovincelookup.get(stateowner, 0) + provincecount
+
+            if subdivisions:
+                # split state vp across provinces so partial occupations can count.
+                vpperprovince = statevp / provincecount if provincecount else 0.0
+                for province in subdivisions:
+                    controller = getprovincecontroller(province)
+                    if not controller:
+                        continue
+                    controlledvplookup[controller] = controlledvplookup.get(controller, 0.0) + vpperprovince
+                    controlledprovincelookup[controller] = controlledprovincelookup.get(controller, 0) + 1
+                    if stateowner:
+                        matrixkey = (stateowner, controller)
+                        ownedcontrolledvplookup[matrixkey] = ownedcontrolledvplookup.get(matrixkey, 0.0) + vpperprovince
+                        ownedcontrolledprovincelookup[matrixkey] = ownedcontrolledprovincelookup.get(matrixkey, 0) + 1
+                continue
+
+            controller = stateshape.get("controllercountry", stateshape.get("country"))
+            if controller:
+                controlledvplookup[controller] = controlledvplookup.get(controller, 0.0) + statevp
+                controlledprovincelookup[controller] = controlledprovincelookup.get(controller, 0) + 1
+                if stateowner:
+                    matrixkey = (stateowner, controller)
+                    ownedcontrolledvplookup[matrixkey] = ownedcontrolledvplookup.get(matrixkey, 0.0) + statevp
+                    ownedcontrolledprovincelookup[matrixkey] = ownedcontrolledprovincelookup.get(matrixkey, 0) + 1
+
+        for province in playableprovincemap.values():
+            controller = getprovincecontroller(province)
+            if not controller:
+                continue
+            fieldmanpowerlookup[controller] = fieldmanpowerlookup.get(controller, 0) + max(0, safeint(province.get("troops", 0), 0))
+
+        # moving orders still represent troops on the field.
+        for movementorder in movementorderlist:
+            controller = movementorder.get("controllercountry", movementorder.get("country"))
+            if not controller:
+                continue
+            fieldmanpowerlookup[controller] = fieldmanpowerlookup.get(controller, 0) + max(0, safeint(movementorder.get("amount", 0), 0))
+
+        return {
+            "totalvp": totalvplookup,
+            "controlledvp": controlledvplookup,
+            "ownedcontrolledvp": ownedcontrolledvplookup,
+            "totalprovinces": totalprovincelookup,
+            "controlledprovinces": controlledprovincelookup,
+            "ownedcontrolledprovinces": ownedcontrolledprovincelookup,
+            "fieldmanpower": fieldmanpowerlookup,
+        }
+
+    def selectactivewarrecord():
+        syncwarrecordswithpairs()
+        if not warrecordlookup:
+            return None
+
+        candidaterecords = list(warrecordlookup.values())
+        # when possible, show the player's war before unrelated npc wars.
+        if playercountry:
+            playerrecords = [
+                record for record in candidaterecords
+                if playercountry in record.get("pair", ())
+            ]
+            if playerrecords:
+                candidaterecords = playerrecords
+
+        candidaterecords.sort(
+            key=lambda record: (
+                safeint(record.get("startturn"), 0),
+                str(record.get("aggressor", "")),
+                str(record.get("defender", "")),
+            ),
+            reverse=True,
+        )
+        return candidaterecords[0]
+
+    def buildwarprogressdata():
+        record = selectactivewarrecord()
+        if record is None:
+            return {}
+
+        aggressor = record.get("aggressor")
+        defender = record.get("defender")
+        if not aggressor or not defender:
+            firstcountry, secondcountry = record.get("pair", (None, None))
+            aggressor = aggressor or firstcountry
+            defender = defender or secondcountry
+        if not aggressor or not defender:
+            return {}
+
+        metrics = buildwarcountrymetrics()
+        totalvp = metrics["totalvp"]
+        controlledvp = metrics["controlledvp"]
+        ownedcontrolledvp = metrics["ownedcontrolledvp"]
+        totalprovinces = metrics["totalprovinces"]
+        controlledprovinces = metrics["controlledprovinces"]
+        ownedcontrolledprovinces = metrics["ownedcontrolledprovinces"]
+        fieldmanpower = metrics["fieldmanpower"]
+        casualties = record.get("casualties", {})
+
+        aggressorcapturedvp = ownedcontrolledvp.get((defender, aggressor), 0.0)
+        defendercapturedvp = ownedcontrolledvp.get((aggressor, defender), 0.0)
+        defendertotalvp = totalvp.get(defender, 0.0)
+        aggressortotalvp = totalvp.get(aggressor, 0.0)
+        # progress is based on enemy-owned vp currently held by the other side.
+        progress = 0.0 if defendertotalvp <= 0 else (aggressorcapturedvp / defendertotalvp) * 100.0
+        defenderprogress = 0.0 if aggressortotalvp <= 0 else (defendercapturedvp / aggressortotalvp) * 100.0
+
+        return {
+            "aggressor": aggressor,
+            "defender": defender,
+            "progress": max(0.0, min(100.0, progress)),
+            "defender_progress": max(0.0, min(100.0, defenderprogress)),
+            "active_war_count": len(warpairset),
+            "start_turn": record.get("startturn"),
+            "aggressor_casualties": max(0, safeint(casualties.get(aggressor, 0), 0)),
+            "defender_casualties": max(0, safeint(casualties.get(defender, 0), 0)),
+            "aggressor_manpower": max(0, safeint(fieldmanpower.get(aggressor, 0), 0)),
+            "defender_manpower": max(0, safeint(fieldmanpower.get(defender, 0), 0)),
+            "aggressor_total_vp": aggressortotalvp,
+            "defender_total_vp": defendertotalvp,
+            "aggressor_controlled_vp": controlledvp.get(aggressor, 0.0),
+            "defender_controlled_vp": controlledvp.get(defender, 0.0),
+            "aggressor_captured_vp": aggressorcapturedvp,
+            "defender_captured_vp": defendercapturedvp,
+            "aggressor_total_provinces": totalprovinces.get(aggressor, 0),
+            "defender_total_provinces": totalprovinces.get(defender, 0),
+            "aggressor_controlled_provinces": controlledprovinces.get(aggressor, 0),
+            "defender_controlled_provinces": controlledprovinces.get(defender, 0),
+            "aggressor_occupied_enemy_provinces": ownedcontrolledprovinces.get((defender, aggressor), 0),
+            "defender_occupied_enemy_provinces": ownedcontrolledprovinces.get((aggressor, defender), 0),
+        }
 
     def nextfrontlineid():
         nonlocal frontlineassignmentcounter
@@ -1310,6 +1514,13 @@ def main(eventbus=None, is_fullscreen=False):
         normalizedpair = normalizewarpair(attacker, defender)
         if normalizedpair is not None:
             warpairset.add(normalizedpair)
+            ensurewarrecord(
+                attacker,
+                defender,
+                aggressor=attacker,
+                defender=defender,
+                turn=payload.get("turn") if isinstance(payload, dict) else currentturnnumber,
+            )
 
         if playercountry:
             if attacker == playercountry:
@@ -1324,7 +1535,50 @@ def main(eventbus=None, is_fullscreen=False):
     #SCRIPT LOADING
         updatescriptengine()
 
+    def handlewarended(payload):
+        firstcountry = None
+        secondcountry = None
+        if isinstance(payload, dict):
+            firstcountry = payload.get("country1", payload.get("attacker"))
+            secondcountry = payload.get("country2", payload.get("defender"))
+
+        firstcountry = canonicalizecountry(firstcountry)
+        secondcountry = canonicalizecountry(secondcountry)
+        normalizedpair = normalizewarpair(firstcountry, secondcountry)
+        if normalizedpair is not None:
+            warrecordlookup.pop(normalizedpair, None)
+
+    def handlecombatresolved(payload):
+        if not isinstance(payload, dict):
+            return
+
+        attackercountry = canonicalizecountry(payload.get("attackerCountry", payload.get("attacker")))
+        defendercountry = canonicalizecountry(payload.get("defenderCountry", payload.get("defender")))
+        normalizedpair = normalizewarpair(attackercountry, defendercountry)
+        if normalizedpair is None or normalizedpair not in warpairset:
+            return
+
+        record = ensurewarrecord(normalizedpair[0], normalizedpair[1])
+        if record is None:
+            return
+
+        # combat events carry before and after counts, so losses can be derived here.
+        attackerlost = max(
+            0,
+            safeint(payload.get("attackersBefore", 0), 0) - safeint(payload.get("attackersAfter", 0), 0),
+        )
+        defenderlost = max(
+            0,
+            safeint(payload.get("defendersBefore", 0), 0) - safeint(payload.get("defendersAfter", 0), 0),
+        )
+
+        casualties = record.setdefault("casualties", {})
+        casualties[attackercountry] = max(0, safeint(casualties.get(attackercountry, 0), 0) + attackerlost)
+        casualties[defendercountry] = max(0, safeint(casualties.get(defendercountry, 0), 0) + defenderlost)
+
     eventbus.subscribe(EngineEventType.WARDECLARED, handlewardeclared)
+    eventbus.subscribe("warended", handlewarended)
+    eventbus.subscribe(EngineEventType.COMBATRESOLVED, handlecombatresolved)
 
     scriptengine = apimodule.EbeeEngine(
         statefilepath=statefilepath,
@@ -1461,6 +1715,7 @@ def main(eventbus=None, is_fullscreen=False):
                 if normalizedpair is not None:
                     updatedwarpairset.add(normalizedpair)
             warpairset = updatedwarpairset
+            syncwarrecordswithpairs()
 
         playercountrychanged = requestedplayercountry != previousplayercountry
         if playercountrychanged:
@@ -2022,6 +2277,9 @@ def main(eventbus=None, is_fullscreen=False):
 
         # switch back to the full window surface for UI chrome
         screen = screen_main
+        warprogressdata = {}
+        if gamephase == "play" and warpairset and runtimeui.warprogressopen:
+            warprogressdata = buildwarprogressdata()
 
         runtimeui.sync(
             gamephase,
@@ -2045,6 +2303,7 @@ def main(eventbus=None, is_fullscreen=False):
             mouseposition_full,
             troopbadgelist,
             focustree.viewdata(),
+            warprogressdata=warprogressdata,
         )
         runtimeui.update(elapsedseconds)
         runtimeui.draw(screen)
@@ -2113,6 +2372,7 @@ def main(eventbus=None, is_fullscreen=False):
                     frontlinebordersegmentcache = {}
                     countriesatwarset = set()
                     warpairset = set()
+                    warrecordlookup.clear()
                     countrymenutarget = None
                     npcdirector.setplayercountry(playercountry)
                     npcdirector.sync_player_wars(playercountry, countriesatwarset, warpairset=warpairset)

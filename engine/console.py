@@ -1,5 +1,7 @@
 import math
 import pygame
+from engine.ai import AIProviderError, create_default_manager
+
 clock = pygame.time.Clock()
 #dev console will not be included in the final 
 
@@ -11,6 +13,43 @@ def loaddevmodeflag(filepath="dev.txt"):
             return fileobject.read().strip().lower() == "true"
     except OSError:
         return False
+
+
+def _cleanconsoleinputtext(textvalue):
+    textvalue = textvalue.replace("\x00", "")
+    textvalue = textvalue.replace("\r", " ").replace("\n", " ")
+    return "".join(character for character in textvalue if character.isprintable())
+
+
+def _readclipboardtext():
+    try:
+        if not pygame.scrap.get_init():
+            pygame.scrap.init()
+        rawtext = pygame.scrap.get(pygame.SCRAP_TEXT)
+    except (AttributeError, pygame.error):
+        rawtext = None
+
+    if rawtext:
+        if isinstance(rawtext, bytes):
+            for encodingname in ("utf-8", "utf-16-le", "latin-1"):
+                try:
+                    return _cleanconsoleinputtext(rawtext.decode(encodingname))
+                except UnicodeDecodeError:
+                    continue
+        return _cleanconsoleinputtext(str(rawtext))
+
+    try:
+        import tkinter
+
+        root = tkinter.Tk()
+        root.withdraw()
+        try:
+            clipboardtext = root.clipboard_get()
+        finally:
+            root.destroy()
+        return _cleanconsoleinputtext(clipboardtext)
+    except Exception:
+        return ""
 
 
 
@@ -25,6 +64,8 @@ def rundevcommand(
     eventbus=None,
     currentturnnumber=0,
     commandcontext=None,
+    aimanager=None,
+    aipendingrequests=None,
 ):
     commandparts = commandline.strip().split() # arguments
     if not commandparts:
@@ -83,6 +124,16 @@ def rundevcommand(
         if isinstance(commandcontext, dict):
             return commandcontext.get(keyname, defaultvalue)
         return defaultvalue
+
+    def getaimanager():
+        if aimanager is not None:
+            return aimanager
+        return getsessionvalue("aimanager")
+
+    def getpendingairequests():
+        if aipendingrequests is not None:
+            return aipendingrequests
+        return getsessionvalue("aipendingrequests")
 
     def applyplayercountry(newplayercountry):
         canonicalcountry = resolvecountry(newplayercountry) if newplayercountry else None
@@ -674,8 +725,44 @@ def rundevcommand(
     
 
     if commandname == "exit" and len(commandparts) == 1:
+        manager = getaimanager()
+        if manager is not None and hasattr(manager, "shutdown"):
+            manager.shutdown(wait=False)
         pygame.quit()
         exit(0)
+
+    if commandname == "aikey":
+        if len(commandparts) != 2:
+            return "usage: aikey [DeepSeek API key]"
+        manager = getaimanager()
+        if manager is None:
+            return "ai manager unavailable"
+        try:
+            manager.set_provider_config("deepseek", api_key=commandparts[1])
+        except Exception as error:
+            return f"ai key error: {error}"
+        return "ok DeepSeek API key set"
+
+    if commandname == "ai":
+        prompt = commandline.strip()[len(commandparts[0]):].strip()
+        if not prompt:
+            return "usage: ai [prompt]"
+        manager = getaimanager()
+        if manager is None:
+            return "ai manager unavailable"
+        pendingrequests = getpendingairequests()
+        if pendingrequests is None:
+            return "ai async queue unavailable"
+        if not hasattr(manager, "ask_async"):
+            return "ai manager does not support async requests"
+        try:
+            request = manager.ask_async(prompt)
+            pendingrequests.append(request)
+            return f"ai request #{request.request_id} sent to {request.provider_name}"
+        except AIProviderError as error:
+            return f"ai error: {error}"
+        except Exception as error:
+            return f"ai error: {error}"
 
 
 
@@ -748,7 +835,7 @@ def rundevcommand(
         return (
             "debug: province [id], find [text], stats, country_stats [country], "
             "set_troops [id] [n], set_terrain [id] [terrain], set_owner [id] [country], set_controller [id] [country], "
-            "eval [code], observe, setplayercountry [country], economy, "
+            "eval [code], observe, setplayercountry [country], economy, ai [prompt], aikey [KEY], "
             "war [country1] [country2], declarewar [country], declarepeace [country1] [country2], "
             "takeovercountry [from] [to], spawnwar [country]"
         )
@@ -759,7 +846,7 @@ def rundevcommand(
             "province [id], find [text], stats, country_stats [country], news [title | description], "
             "collapse [country] [description], war [country1] [country2], declarewar [country], "
             "observe, setplayercountry [country], "
-            "economy, eval [code], declarepeace [country1] [country2], "
+            "economy, eval [code], ai [prompt], aikey [KEY], declarepeace [country1] [country2], "
             "takeovercountry [from] [to], spawnwar [country], help:debug, help, exit"
         )
 
@@ -775,7 +862,7 @@ class developmentconsole:
 
     #init is the only time we can load the dev mode flag
 
-    def __init__(self, enabled):
+    def __init__(self, enabled, aimanager=None):
         self.enabled = enabled
         self.visible = False
         self.inputtext = ""
@@ -783,6 +870,32 @@ class developmentconsole:
         self.buttonrectangle = None
         self.panelrectangle = None
         self.closerectangle = None
+        self.aimanager = aimanager or create_default_manager()
+        self.aipendingrequests = []
+
+    def collectairesponses(self):
+        if not self.aipendingrequests:
+            return
+
+        pendingrequests = []
+        for request in self.aipendingrequests:
+            if not request.done():
+                pendingrequests.append(request)
+                continue
+
+            try:
+                response = request.result()
+            except AIProviderError as error:
+                self.loglines.append(f"ai #{request.request_id} error: {error}")
+            except Exception as error:
+                self.loglines.append(f"ai #{request.request_id} error: {error}")
+            else:
+                responsetext = response.strip() if isinstance(response, str) else str(response).strip()
+                if not responsetext:
+                    responsetext = "[empty response]"
+                self.loglines.append(f"ai #{request.request_id}: {responsetext}")
+
+        self.aipendingrequests = pendingrequests
 
 
     def drawbutton(self, screen, rectangle, textvalue, fontobject, enabled=True, pulse=False):
@@ -834,6 +947,8 @@ class developmentconsole:
             self.panelrectangle = None
             self.closerectangle = None
             return
+
+        self.collectairesponses()
 
         windowwidth, windowheight = screen.get_size()
         self.buttonrectangle = pygame.Rect(windowwidth - 132, 10, 122, 30)
@@ -957,12 +1072,22 @@ class developmentconsole:
         if not self.visible:
             return False
 
+        eventmodifiers = getattr(keyboardevent, "mod", None)
+        if eventmodifiers is None:
+            try:
+                eventmodifiers = pygame.key.get_mods()
+            except pygame.error:
+                eventmodifiers = 0
+
         if keyboardevent.key == pygame.K_ESCAPE:
             self.visible = False
         elif keyboardevent.key == pygame.K_RETURN:
             commandline = self.inputtext.strip()
             if commandline:
-                self.loglines.append("> " + commandline)
+                if commandline.lower().startswith("aikey "):
+                    self.loglines.append("> aikey [hidden]")
+                else:
+                    self.loglines.append("> " + commandline)
                 outputline = rundevcommand(
                     commandline,
                     provincemap,
@@ -973,11 +1098,21 @@ class developmentconsole:
                     eventbus=eventbus,
                     currentturnnumber=currentturnnumber,
                     commandcontext=commandcontext,
+                    aimanager=self.aimanager,
+                    aipendingrequests=self.aipendingrequests,
                 )
                 self.loglines.append(outputline)
             self.inputtext = ""
         elif keyboardevent.key == pygame.K_BACKSPACE:
             self.inputtext = self.inputtext[:-1]
+        elif keyboardevent.key == pygame.K_v and (eventmodifiers & (pygame.KMOD_CTRL | pygame.KMOD_META)):
+            pastedtext = _cleanconsoleinputtext(_readclipboardtext())
+            if pastedtext:
+                self.inputtext += pastedtext
+        elif keyboardevent.key == pygame.K_INSERT and (eventmodifiers & pygame.KMOD_SHIFT):
+            pastedtext = _cleanconsoleinputtext(_readclipboardtext())
+            if pastedtext:
+                self.inputtext += pastedtext
         else:
 
 

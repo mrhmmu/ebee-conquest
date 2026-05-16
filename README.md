@@ -76,6 +76,7 @@ A **Google Maps-style, 2D turn-based grand strategy war simulator** where player
 ## Support of LLM API Providers for dNPC™️(powered by [EbeeEngineAPI](https://github.com/ebee-conquest/engine/api.py))
 
 - [ ] [Graph-based (Recommended)](https://github.com/RyanMMU/ebee-conquest)
+- [x] [DeepSeek](https://www.deepseek.com/)
 - [ ] [AIHubMix](https://aihubmix.com/?aff=OOiX)
 - [ ] [OpenRouter](https://openrouter.ai/)
 - [ ] [vLLM](https://github.com/vllm-project/vllm)
@@ -86,7 +87,6 @@ A **Google Maps-style, 2D turn-based grand strategy war simulator** where player
   - [ ] [Azure OpenAI API](https://learn.microsoft.com/en-us/azure/ai-services/openai/reference)
 - [ ] [Anthropic Claude](https://anthropic.com)
   - [ ] [AWS Claude](https://docs.anthropic.com/en/api/claude-on-amazon-bedrock) 
-- [ ] [DeepSeek](https://www.deepseek.com/)
 - [ ] [Qwen](https://help.aliyun.com/document_detail/2400395.html)
 - [ ] [Google Gemini](https://developers.generativeai.google)
 - [ ] [xAI](https://x.ai/)
@@ -161,17 +161,6 @@ Non-player nations aren't just scripts; they are agents.
   * Generates dynamic news reports and political shifts based on player actions.
   * Utilizes LLMs to write immersive narrative descriptions of in-game developments.
 
------
-
-## Development Team
-
-| Member | Role | Primary Contributions |
-| :--- | :--- | :--- |
-| **Ryan** | Lead Developer | Engine Core, Performance, LLM Integration (Pydantic), Optimization. |
-| **Benedict C.** | Game Logic & UI | UI/UX Design, Combat Math, Save/Load Systems. |
-| **Adam S.** | Narrative Systems | Database setup, Prompt Engineering, NPC Personality Logic. |
-
------
 
 ## AI Integration 
 
