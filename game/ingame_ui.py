@@ -417,6 +417,7 @@ class InGameUI:
         if self.pausemenuopen:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if self._pausequit_rect.collidepoint(event.pos):
+                    self.ui_click_sound.play()
                     return self.actionquitgame
             return None
         
