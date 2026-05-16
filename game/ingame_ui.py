@@ -365,7 +365,7 @@ class InGameUI:
 
         back_w = 120
         back_h = 40
-        back_x = start_x
+        back_x = start_x + (btn_w - back_w) // 2 
         back_y = last_weapon_rect.bottom + 20
 
         self._research_back_rect = pygame.Rect(back_x, back_y, back_w, back_h)
