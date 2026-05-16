@@ -42,6 +42,8 @@ class LeftBar:
         self.items: list[str] = []
         self.item_rects: dict[str, pygame.Rect] = {}
         self._hover_glow = {}
+        # rolling FPS history for status graph (42 samples)
+        self._fps_history: list[float] = [0.0] * 42
 
     def set_items(self, items: list[str]):
         self.items = list(items)
@@ -203,15 +205,30 @@ class LeftBar:
             for offset in range(1, 4):
                 gy = graph_rect.y + offset * graph_rect.height // 4
                 pygame.draw.line(surface, (26, 37, 51), (graph_rect.x, gy), (graph_rect.right, gy), 1)
+            # update fps history from statusdata then draw graph from samples
+            try:
+                fps_sample = float(statusdata.get("fps", 0.0) or 0.0)
+            except Exception:
+                fps_sample = 0.0
+            self._fps_history.append(fps_sample)
+            if len(self._fps_history) > 42:
+                self._fps_history = self._fps_history[-42:]
+
+            samples = list(self._fps_history or [])
+            if not samples:
+                samples = [0.0] * 42
+            # autoscale: at least 60 FPS range so small variations are visible
+            max_scale = max(60.0, max(samples) if samples else 60.0)
             points = []
-            tick = pygame.time.get_ticks() * 0.001
-            for index in range(42):
-                px = graph_rect.x + int(index * graph_rect.width / 41)
-                wave = math.sin(tick * 0.8 + index * 0.34) * 0.32 + math.sin(tick * 1.7 + index * 0.12) * 0.16
-                py = graph_rect.centery + int(wave * graph_rect.height * 0.38)
+            sample_count = max(2, len(samples))
+            for idx, sample in enumerate(samples):
+                px = graph_rect.x + int(idx * graph_rect.width / (sample_count - 1))
+                normalized = min(1.0, max(0.0, float(sample) / max_scale))
+                # map normalized (0..1) so 0 is bottom, 1 is top of graph rect
+                py = graph_rect.bottom - int(normalized * graph_rect.height)
                 points.append((px, py))
             if len(points) >= 2:
-                pygame.draw.lines(surface, _C_SUCCESS, False, points, 1)
+                pygame.draw.lines(surface, _C_SUCCESS, False, points, 2)
             fps_value = float(statusdata.get("fps", 0.0) or 0.0)
             latency_value = float(statusdata.get("latency_ms", 0.0) or 0.0)
             fps_text = font.render(f"FPS {fps_value:4.1f}", True, _C_TEXT)
@@ -380,6 +397,9 @@ class InGameUI:
         self._notificationcount = 0
         self._startdate = date(2020, 1, 1)
         self._daysperturn = 5
+
+        # rolling FPS history for status graph (42 samples)
+        self._fps_history: list[float] = [0.0] * 42
 
         self._flags = self._load_flags()
         self._badge_flags = {
@@ -898,6 +918,14 @@ class InGameUI:
             self._selected_country_stats = selected_country_stats
         if systemstatus is not None:
             self._systemstatus = dict(systemstatus)
+            try:
+                fps_val = float(self._systemstatus.get("fps", 0.0) or 0.0)
+            except Exception:
+                fps_val = 0.0
+            self._fps_history.append(fps_val)
+            if len(self._fps_history) > 42:
+                # keep most recent 42 samples
+                self._fps_history = self._fps_history[-42:]
         self._notificationcount = max(0, int(notificationcount or 0))
 
         self.applylayout()
