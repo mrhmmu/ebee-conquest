@@ -25,15 +25,18 @@ class LeftBar:
         self.rect = rect
         self.items: list[str] = []
         self.item_rects: dict[str, pygame.Rect] = {}
+        self._hover_glow = {}
 
     def set_items(self, items: list[str]):
         self.items = list(items)
+        self._hover_glow = {}
 
-    def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos):
+    def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos, font_bold=None):
         pygame.draw.rect(surface, (50, 50, 50), self.rect)
         pygame.draw.rect(surface, (25, 25, 25), self.rect, 1)
 
         self.item_rects = {}
+        radius = 8
         for i, item in enumerate(self.items):
             if not str(item).strip():
                 continue
@@ -46,14 +49,43 @@ class LeftBar:
             item_key = str(item).strip().upper()
             self.item_rects[item_key] = rect
 
-            if "CLEAR ALL" in item:
-                color = (0, 120, 0) if rect.collidepoint(mouse_pos) else (0, 220, 0)
+            hovered = rect.collidepoint(mouse_pos)
+            glow = self._hover_glow.get(item_key, 0.0)
+            if hovered:
+                glow = min(1.0, glow + 0.12)
             else:
-                color = (0, 200, 0) if rect.collidepoint(mouse_pos) else (30, 30, 30)
+                glow = max(0.0, glow - 0.08)
+            self._hover_glow[item_key] = glow
 
-            pygame.draw.rect(surface, color, rect)
-            text_color = (0, 0, 0) if "CLEAR ALL" in item else (255, 255, 255)
-            text = font.render(item, True, text_color)
+            if "CLEAR ALL" in item:
+                color = (0, 120, 0) if hovered else (0, 220, 0)
+            else:
+                if hovered:
+                    color = (60, 230, 60)
+                else:
+                    color = (30, 30, 30)
+
+            pygame.draw.rect(surface, color, rect, border_radius=radius)
+
+            if glow > 0.01:
+                glow_surf = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
+                for ring in range(5):
+                    ring_alpha = int(glow * (40 - ring * 7))
+                    if ring_alpha <= 0:
+                        continue
+                    offset = ring * 2 + 2
+                    gw = w + offset * 2
+                    gh = h + offset * 2
+                    pygame.draw.rect(glow_surf, (60, 255, 60, ring_alpha),
+                        (12 - offset, 12 - offset, gw, gh),
+                        border_radius=radius + offset, width=2)
+                surface.blit(glow_surf, (x - 12, y - 12))
+
+            text_color = (0, 0, 0) if hovered else (200, 200, 200)
+            if "CLEAR ALL" in item:
+                text_color = (0, 0, 0)
+            active_font = font_bold if (hovered and font_bold) else font
+            text = active_font.render(item, True, text_color)
             surface.blit(text, (x + 10, y + 10))
 
 
@@ -63,20 +95,23 @@ class BottomButtons:
         self.items: list[str] = []
         self.item_rects: dict[str, pygame.Rect] = {}
         self.selected: str | None = None
+        self._hover_glow = {}
 
     def set_items(self, items: list[str]):
         self.items = list(items)
         if self.selected not in self.items:
             self.selected = (self.items[-1] if self.items else None)
+        self._hover_glow = {}
 
     def set_selected(self, item: str | None):
         if item is None or item in self.items:
             self.selected = item
 
-    def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos):
+    def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos, font_bold=None):
         w = 120
         h = 30
         spacing = 10
+        radius = 8
         total_width = len(self.items) * w + (len(self.items) - 1) * spacing if self.items else 0
         available_width = max(0, self.rect.width)
         start_x = self.rect.x + max(0, (available_width - total_width) // 2)
@@ -88,14 +123,40 @@ class BottomButtons:
             rect = pygame.Rect(x, y, w, h)
             self.item_rects[item] = rect
 
-            if item == self.selected:
-                color = (0, 220, 0)
+            hovered = rect.collidepoint(mouse_pos)
+            glow = self._hover_glow.get(item, 0.0)
+            if hovered:
+                glow = min(1.0, glow + 0.12)
             else:
-                color = (0, 200, 0) if rect.collidepoint(mouse_pos) else (30, 30, 30)
-            pygame.draw.rect(surface, color, rect)
-            pygame.draw.rect(surface, (25, 25, 25), rect, 1)
+                glow = max(0.0, glow - 0.08)
+            self._hover_glow[item] = glow
 
-            text = font.render(item, True, (255, 255, 255))
+            if item == self.selected:
+                color = (0, 220, 0) if not hovered else (60, 230, 60)
+            else:
+                color = (60, 230, 60) if hovered else (30, 30, 30)
+
+            pygame.draw.rect(surface, color, rect, border_radius=radius)
+
+            if glow > 0.01:
+                glow_surf = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
+                for ring in range(5):
+                    ring_alpha = int(glow * (40 - ring * 7))
+                    if ring_alpha <= 0:
+                        continue
+                    offset = ring * 2 + 2
+                    gw = w + offset * 2
+                    gh = h + offset * 2
+                    pygame.draw.rect(glow_surf, (60, 255, 60, ring_alpha),
+                        (12 - offset, 12 - offset, gw, gh),
+                        border_radius=radius + offset, width=2)
+                surface.blit(glow_surf, (x - 12, y - 12))
+
+            text_color = (0, 0, 0) if hovered else (200, 200, 200)
+            if item == self.selected and not hovered:
+                text_color = (0, 0, 0)
+            active_font = font_bold if (hovered and font_bold) else font
+            text = active_font.render(item, True, text_color)
             text_rect = text.get_rect(center=rect.center)
             surface.blit(text, text_rect)
 
@@ -121,6 +182,7 @@ class InGameUI:
         self.window_size = window_size
         self.title_font = pygame.font.SysFont("Verdana", 16, bold=True)
         self.font = pygame.font.SysFont("Verdana", 14)
+        self.font_bold = pygame.font.SysFont("Verdana", 14, bold=True)
 
         self.leftbar_width = 180
         self.topbar_height = 50
@@ -134,6 +196,9 @@ class InGameUI:
         self.currentturnnumber = 1
         self.playergold = 0
         self.playerpopulation = 0
+        self.playerstability = 50.0
+        self.playerpp = 0
+        self.playerap = 0
         self._active_manpower = 0
         self._manpower_cache_key = None
 
@@ -158,9 +223,15 @@ class InGameUI:
         self.actionwarprogress = "warprogress"
 
         self._flags = self._load_flags()
+        self._badge_flags = {
+            key: pygame.transform.scale(img, (20, 14))
+            for key, img in self._flags.items()
+        }
 
         self._choose_rect = pygame.Rect(0, 0, 160, 34)
         self._endturn_rect = pygame.Rect(0, 0, 10, 10)  # placed near map bottom-right
+        self._endturn_glow = 0.0
+        self._button_glows: dict[str, float] = {}
 
         # right panel interactive rects (computed in applylayout)
         self._recruit_action_rect = pygame.Rect(0, 0, 10, 10)
@@ -296,7 +367,6 @@ class InGameUI:
             show_bottom = True
             show_right = bool(
                 self._countrymenutarget
-                or self._selectedtroopentries
                 or self.bottom_buttons.selected == "RECRUIT"
                 or self.active_left_tab == "COMBAT"
                 or self._selectedmapcountry
@@ -413,6 +483,9 @@ class InGameUI:
         currentturnnumber,
         playergold,
         playerpopulation,
+        playerstability,
+        playerpp,
+        playerap,
         selectedprovinceid,
         provincemap,
         recruitamount,
@@ -428,6 +501,7 @@ class InGameUI:
         mouseposition,
         troopbadgelist,
         focusview=None,
+        researchdata=None,
         warprogressdata=None,
         selected_country_stats=None,
     ):
@@ -437,6 +511,9 @@ class InGameUI:
         self.currentturnnumber = currentturnnumber
         self.playergold = playergold
         self.playerpopulation = playerpopulation
+        self.playerstability = playerstability
+        self.playerpp = playerpp
+        self.playerap = playerap
         self.recruitamount = recruitamount
         self.recruitenabled = bool(recruitenabled)
         self._countrymenutarget = countrymenutarget
@@ -448,6 +525,12 @@ class InGameUI:
         self._hovermousepos = tuple(mouseposition or (0, 0))
         if focusview is not None:
             self.focusview.setdata(focusview)
+        if researchdata is not None:
+            self.researchview.setdata(
+                researchdata.get("researched", frozenset()),
+                researchdata.get("researching_id"),
+                researchdata.get("researching_turns_remaining", 0),
+            )
         # reflow after state changes (tab visibility depends on selection/menu)
         if warprogressdata is not None:
             self._warprogressdata = warprogressdata
@@ -492,10 +575,18 @@ class InGameUI:
             return None
         
         if self.focusview.isopen:
-            return self.focusview.handleevent(event)
+            result = self.focusview.handleevent(event)
+            if not self.focusview.isopen:
+                self.active_left_tab = None
+                self.applylayout()
+            return result
 
         if self.researchview.isopen:
-            return self.researchview.handleevent(event)
+            result = self.researchview.handleevent(event)
+            if not self.researchview.isopen:
+                self.bottom_buttons.set_selected(None)
+                self.applylayout()
+            return result
 
         if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
             return None
@@ -581,8 +672,6 @@ class InGameUI:
         if self.leftbar.rect.collidepoint(mouseposition):
             return True
         if self.topbar.rect.collidepoint(mouseposition):
-            return True
-        if self.bottom_buttons.selected == "RESEARCH" and not self._countrymenutarget:
             return True
         if self.rightbar.rect.collidepoint(mouseposition):
             return True
@@ -749,18 +838,37 @@ class InGameUI:
 
         # full UI chrome (play)
         if self.leftbar.rect.width:
-            self.leftbar.draw(surface, self.font, mouse)
-        if self.rightbar.rect.width:
-            self.rightbar.draw(surface)
-        if self.bottombar.rect.height:
-            self.bottombar.draw(surface)
-            self.bottom_buttons.draw(surface, self.font, mouse)
+            self.leftbar.draw(surface, self.font, mouse, font_bold=self.font_bold)
+        self.topbar.draw(surface)
+        self.bottombar.draw(surface)
+        self.bottom_buttons.draw(surface, self.font, mouse, font_bold=self.font_bold)
         self.topbar.draw(surface)
 
         # end turn button (bottom-right of map)
-        pygame.draw.rect(surface, (0, 200, 0), self._endturn_rect)
-        pygame.draw.rect(surface, (25, 25, 25), self._endturn_rect, 1)
-        end_label = self.font.render("END TURN", True, (0, 0, 0))
+        hovered = self._endturn_rect.collidepoint(mouse)
+        if hovered:
+            self._endturn_glow = min(1.0, self._endturn_glow + 0.12)
+        else:
+            self._endturn_glow = max(0.0, self._endturn_glow - 0.08)
+        glow = self._endturn_glow
+        radius = 8
+        color = (60, 230, 60) if hovered else (0, 200, 0)
+        pygame.draw.rect(surface, color, self._endturn_rect, border_radius=radius)
+        if glow > 0.01:
+            ew, eh = self._endturn_rect.size
+            ex, ey = self._endturn_rect.topleft
+            glow_surf = pygame.Surface((ew + 24, eh + 24), pygame.SRCALPHA)
+            for ring in range(5):
+                ring_alpha = int(glow * (40 - ring * 7))
+                if ring_alpha <= 0:
+                    continue
+                offset = ring * 2 + 2
+                pygame.draw.rect(glow_surf, (60, 255, 60, ring_alpha),
+                    (12 - offset, 12 - offset, ew + offset * 2, eh + offset * 2),
+                    border_radius=radius + offset, width=2)
+            surface.blit(glow_surf, (ex - 12, ey - 12))
+        end_font = self.font_bold if hovered else self.font
+        end_label = end_font.render("END TURN", True, (0, 0, 0))
         surface.blit(end_label, end_label.get_rect(center=self._endturn_rect.center))
 
         # top title + stats line (with mini flag)
@@ -787,12 +895,12 @@ class InGameUI:
         stats_text = (
             f"{country_text} | Gold {int(self.playergold)} | Turn {int(self.currentturnnumber)} | "
             f"Pop {int(self.playerpopulation)} | Active MP {int(self._active_manpower)} | "
-            f"Stability -- | PP -- | AP --"
+            f"Stability {self.playerstability:.0f} | PP {int(self.playerpp)} | AP {int(self.playerap)}"
         )
         surface.blit(self.font.render(stats_text, True, (220, 220, 220)), (stats_x, stats_y + 2))
 
         # troop badges on top of the map (map-local centers need viewport offset)
-        visiblebadgelist = gui_mergetroopbadgeentries(self._troopbadgelist, self.font, self._flags)
+        visiblebadgelist = gui_mergetroopbadgeentries(self._troopbadgelist, self.font, self._badge_flags)
         for entry in visiblebadgelist:
             if not isinstance(entry, dict):
                 continue
@@ -806,7 +914,7 @@ class InGameUI:
                 (cx, cy),
                 entry.get("troops", 0),
                 self.font,
-                self._flags,
+                self._badge_flags,
                 entry.get("country"),
                 backgroundcolor=entry.get("backgroundcolor", (0, 0, 0)),
                 bordercolor=entry.get("bordercolor", (165, 165, 165)),
@@ -882,24 +990,13 @@ class InGameUI:
         content_rect = self.rightbar.rect.inflate(-24, -24)
         content_rect.topleft = (self.rightbar.rect.x + 12, self.rightbar.rect.y + 12)
 
-        # base panel
+        # base panel — fill full rect first so padding isn't transparent under overlays
+        pygame.draw.rect(surface, (18, 18, 18), self.rightbar.rect, border_radius=2)
+        pygame.draw.rect(surface, (25, 25, 25), self.rightbar.rect, 1, border_radius=2)
         pygame.draw.rect(surface, (18, 18, 18), content_rect, border_radius=2)
-        pygame.draw.rect(surface, (25, 25, 25), content_rect, 1, border_radius=2)
 
         header = self.font.render(str(selected_tab or ""), True, (210, 210, 210))
         surface.blit(header, (content_rect.x, content_rect.y))
-
-        def draw_btn(rect, enabled, label, primary=False):
-            if primary:
-                color = (0, 200, 0) if enabled else (70, 70, 70)
-                text_color = (0, 0, 0) if enabled else (170, 170, 170)
-            else:
-                color = (56, 116, 198) if enabled else (70, 70, 70)
-                text_color = (240, 240, 240) if enabled else (170, 170, 170)
-            pygame.draw.rect(surface, color, rect, border_radius=1)
-            pygame.draw.rect(surface, (35, 35, 35), rect, 1, border_radius=1)
-            txt = self.font.render(label, True, text_color)
-            surface.blit(txt, txt.get_rect(center=rect.center))
 
         y_cursor = content_rect.y + 24
 
@@ -907,7 +1004,6 @@ class InGameUI:
         if self._countrymenutarget:
             alreadyatwar = self._countrymenutarget in self._countriesatwarset
             surface.blit(self.font.render("Country actions", True, (240, 240, 240)), (content_rect.x, y_cursor + 6))
-            # country identity (no glow; map highlight handles the emphasis)
             country_key = str(self._countrymenutarget or "").strip().lower().replace(" ", "_").replace("-", "_")
             flag_img = self._flags.get(country_key) if country_key else None
             draw_x = content_rect.x
@@ -918,26 +1014,21 @@ class InGameUI:
             surface.blit(self.font.render(str(self._countrymenutarget), True, (220, 220, 220)), (draw_x, draw_y))
             status = "Status: at war" if alreadyatwar else "Status: peace"
             surface.blit(self.font.render(status, True, (205, 205, 215)), (content_rect.x, y_cursor + 52))
-            # button gets its own row (no overlap)
             self._declarewar_rect.topleft = (content_rect.x, y_cursor + 82)
-            draw_btn(
-                self._declarewar_rect,
+            self._draw_glow_btn(
+                surface, "declarewar", self._declarewar_rect,
                 not alreadyatwar,
                 "Declare War" if not alreadyatwar else "Already at war!",
-                primary=False,
+                mouse=mouse,
             )
             y_cursor += 130
-
-        # Recruit action only shows in RECRUIT tab (and only when no country menu)
 
         elif self.active_left_tab == "COMBAT" and not self._countrymenutarget:
             surface.blit(self.font.render("War Operations", True, (240, 240, 240)), (content_rect.x, y_cursor))
             self._war_progress_rect.topleft = (content_rect.x, y_cursor + 30)
-            draw_btn(
-                self._war_progress_rect, 
-                True, 
-                "WAR PROGRESS", 
-                primary=False
+            self._draw_glow_btn(
+                surface, "warprogress", self._war_progress_rect,
+                True, "WAR PROGRESS", mouse=mouse,
             )
             y_cursor += 80
 
@@ -949,12 +1040,10 @@ class InGameUI:
                 surface.blit(big_flag, (flag_x, y_cursor))
                 y_cursor += big_flag.get_height() + 16
 
-            # Country name
             name_surf = self.title_font.render(str(self._selectedmapcountry), True, (240, 240, 240))
             surface.blit(name_surf, (content_rect.x, y_cursor))
             y_cursor += name_surf.get_height() + 8
 
-            # Stats block
             stats = self._selected_country_stats or {}
             lines = [
                 f"Population: {self._format_number(stats.get('population', 0))}",
@@ -971,45 +1060,58 @@ class InGameUI:
            
             self._recruit_action_rect.topleft = (content_rect.x, self._split_rect.y - 44)
             recruit_label = f"RECRUIT +{int(self.recruitamount)}"
-            draw_btn(self._recruit_action_rect, self.recruitenabled, recruit_label, primary=True)
+            self._draw_glow_btn(
+                surface, "recruit", self._recruit_action_rect,
+                self.recruitenabled, recruit_label, primary=True, mouse=mouse,
+            )
             y_cursor = max(y_cursor, content_rect.y + 24)
 
-
-      
-
         # Troop info + decision buttons only show in RECRUIT tab, and only when troops > 0
-        if selected_tab == "RECRUIT" and not self._countrymenutarget:
+        if selected_tab == "RECRUIT" and not self._countrymenutarget and self.active_left_tab != "COMBAT" and not self._selectedmapcountry:
             selected = [e for e in (self._selectedtroopentries or []) if isinstance(e, dict)]
             totaltroops = sum(max(0, int(e.get("troops", 0))) for e in selected)
             if totaltroops > 0:
-                # fixed layout: header/list region above recruit+buttons
                 header_y = content_rect.y + 60
-                surface.blit(self.font.render("Troops", True, (240, 240, 240)), (content_rect.x, header_y))
-                surface.blit(
-                    self.font.render(f"{len(selected)} selected (Total: {totaltroops})", True, (210, 210, 210)),
-                    (content_rect.x, header_y + 22),
+                surface.blit(self.font.render("Selected Troops", True, (240, 240, 240)), (content_rect.x, header_y))
+                summary = self.font.render(
+                    f"{len(selected)} province{'s' if len(selected) != 1 else ''}  |  Total: {totaltroops}",
+                    True, (210, 210, 210),
                 )
+                surface.blit(summary, (content_rect.x, header_y + 22))
 
                 list_top = header_y + 46
                 list_bottom = min(self._recruit_action_rect.y, self._split_rect.y) - 10
-                maxrows = max(0, (list_bottom - list_top) // 20)
+                maxrows = max(0, (list_bottom - list_top) // 22)
                 maxrows = min(10, maxrows)
+
+                col_x = content_rect.x
+                row_h = 20
                 for i in range(maxrows):
                     if i >= len(selected):
                         break
+                    if i % 2 == 1:
+                        pygame.draw.rect(surface, (24, 24, 24),
+                            (col_x, list_top + i * (row_h + 2), content_rect.width, row_h),
+                            border_radius=2)
                     prov = selected[i].get("provinceid", "unknown")
                     troops = int(selected[i].get("troops", 0))
-                    line = f"{prov}: {troops}"
-                    surface.blit(self.font.render(line, True, (210, 210, 210)), (content_rect.x, list_top + i * 20))
+                    troop_str = self.font.render(f"{troops:,}", True, (200, 220, 200))
+                    prov_str = self.font.render(prov, True, (210, 210, 210))
+                    surface.blit(prov_str, (col_x, list_top + i * (row_h + 2)))
+                    surface.blit(troop_str,
+                        (content_rect.right - troop_str.get_width(), list_top + i * (row_h + 2)))
+
                 if len(selected) > maxrows and maxrows > 0:
                     overflow = len(selected) - maxrows
-                    surface.blit(self.font.render(f"... +{overflow} more", True, (170, 170, 170)), (content_rect.x, list_top + (maxrows - 1) * 20))
+                    surface.blit(self.font.render(f"... +{overflow} more", True, (170, 170, 170)),
+                        (col_x, list_top + (maxrows - 1) * (row_h + 2) + row_h))
 
                 split_enabled = totaltroops > 1
                 merge_enabled = len(selected) > 1
-                draw_btn(self._split_rect, split_enabled, "split")
-                draw_btn(self._merge_rect, merge_enabled, "merge")
-                draw_btn(self._frontline_rect, True, "CANCEL" if self._frontlineplacementmode else "frontline")
+                frontline_label = "CANCEL" if self._frontlineplacementmode else "frontline"
+                self._draw_glow_btn(surface, "split", self._split_rect, split_enabled, "split", mouse=mouse)
+                self._draw_glow_btn(surface, "merge", self._merge_rect, merge_enabled, "merge", mouse=mouse)
+                self._draw_glow_btn(surface, "frontline", self._frontline_rect, True, frontline_label, mouse=mouse)
 
            
             if self.pausemenuopen:
@@ -1018,6 +1120,52 @@ class InGameUI:
         elif self.pausemenuopen:
             self._draw_pausemenu(surface)
 
+
+    def _draw_glow_btn(self, surface, key, rect, enabled, label, primary=False, mouse=None):
+        if mouse is None:
+            mouse = pygame.mouse.get_pos()
+        hovered = rect.collidepoint(mouse) and enabled
+        glow = self._button_glows.get(key, 0.0)
+        if hovered:
+            glow = min(1.0, glow + 0.12)
+        else:
+            glow = max(0.0, glow - 0.08)
+        self._button_glows[key] = glow
+
+        radius = 8
+        if primary:
+            color = (60, 230, 60) if hovered else ((0, 200, 0) if enabled else (70, 70, 70))
+        else:
+            color = (80, 160, 240) if hovered else ((56, 116, 198) if enabled else (70, 70, 70))
+
+        pygame.draw.rect(surface, color, rect, border_radius=radius)
+
+        if glow > 0.01 and enabled:
+            w, h = rect.size
+            glow_surf = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
+            for ring in range(5):
+                ring_alpha = int(glow * (40 - ring * 7))
+                if ring_alpha <= 0:
+                    continue
+                offset = ring * 2 + 2
+                gw = w + offset * 2
+                gh = h + offset * 2
+                pygame.draw.rect(glow_surf, (60, 255, 60, ring_alpha),
+                    (12 - offset, 12 - offset, gw, gh),
+                    border_radius=radius + offset, width=2)
+            surface.blit(glow_surf, (rect.x - 12, rect.y - 12))
+
+        if hovered:
+            text_color = (0, 0, 0)
+            fnt = self.font_bold
+        elif primary and enabled:
+            text_color = (0, 0, 0)
+            fnt = self.font
+        else:
+            text_color = (240, 240, 240) if enabled else (170, 170, 170)
+            fnt = self.font
+        txt = fnt.render(label, True, text_color)
+        surface.blit(txt, txt.get_rect(center=rect.center))
 
     def _draw_pausemenu(self, surface: pygame.Surface):
         overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)

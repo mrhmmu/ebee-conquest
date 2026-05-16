@@ -29,6 +29,7 @@ LEADERS = {
 from game.ingame_ui import InGameUI
 from game.focuseffects import FocusEffectContext
 from game.focusloader import loadfocustreeforcountry
+from game.researchui import load_research_data as _load_research_data, RESEARCH_RP_PER_TURN
 from engine.console import developmentconsole, loaddevmodeflag 
 from engine.gui import (
     gui_lightencolor,
@@ -251,7 +252,7 @@ def blackworld(nonplayablestateshapelist, mapbox):
                 for pointx, pointy in worldpoints
             ]
             if len(shiftedpoints) >= 3:
-                pygame.draw.polygon(worldsurface, (0, 0, 0, 255), shiftedpoints)
+                pygame.draw.polygon(worldsurface, (18, 50, 18, 255), shiftedpoints)
 
     return worldsurface
 
@@ -871,8 +872,14 @@ def main(eventbus=None, is_fullscreen=False):
         name = str(entry.get("Country", "")).strip()
         if not name:
             continue
+        total_pop = 0
+        states_data = entry.get("States", {})
+        if isinstance(states_data, dict):
+            for sdata in states_data.values():
+                if isinstance(sdata, dict):
+                    total_pop += parse_population(sdata.get("population", 0))
         country_stats_lookup[name] = {
-            "population": parse_population(entry.get("population", 0)),
+            "population": total_pop,
             "manpower": parse_population(entry.get("manpower", 0)),
             "stability": float(str(entry.get("stability", 0)).strip() or 0),
             "leader": LEADERS.get(name, "Unknown"),
@@ -1159,6 +1166,8 @@ def main(eventbus=None, is_fullscreen=False):
     clock = pygame.time.Clock()
     fpshistory = []
     fpshistorymaxsamples = 180
+    sea_gradient_cache = None
+    sea_gradient_cache_size = None
     expandedstateid = None
     selectedprovinceid = None
     selectedprovinceidset = set()
@@ -1173,6 +1182,9 @@ def main(eventbus=None, is_fullscreen=False):
     (
         playergold,
         playerpopulation,
+        playerstability,
+        playerpp,
+        playerap,
         recruitamount,
         recruitgoldcostperunit,
         recruitpopulationcostperunit,
@@ -1208,6 +1220,14 @@ def main(eventbus=None, is_fullscreen=False):
     warpairset = set()
     warrecordlookup = {}
     countrymenutarget = None
+    researched_set: set[str] = set()
+    researching_node_id: str | None = None
+    researching_turns_remaining: int = 0
+    _research_cost_lookup: dict[str, int] = {}
+    _research_raw = _load_research_data()
+    for _rcat in _research_raw.values():
+        for _rn in _rcat.get("nodes", []):
+            _research_cost_lookup[_rn["id"]] = _rn["cost"]
 
     def normalizewarpair(firstcountry, secondcountry):
         if not firstcountry or not secondcountry:
@@ -1640,6 +1660,16 @@ def main(eventbus=None, is_fullscreen=False):
                 return playergold
             if resource == "population":
                 return playerpopulation
+            if resource == "stability":
+                return playerstability
+            if resource == "pp":
+                return playerpp
+            if resource == "political_power":
+                return playerpp
+            if resource == "ap":
+                return playerap
+            if resource == "action_points":
+                return playerap
 
         economystate = npcdirector.countryeconomy.get(country)
         if economystate is not None:
@@ -1649,6 +1679,9 @@ def main(eventbus=None, is_fullscreen=False):
     def scriptsetresource(country, resource, value):
         nonlocal playergold
         nonlocal playerpopulation
+        nonlocal playerstability
+        nonlocal playerpp
+        nonlocal playerap
 
         value = max(0, int(value))
         if playercountry and country == playercountry:
@@ -1657,6 +1690,15 @@ def main(eventbus=None, is_fullscreen=False):
                 return True
             if resource == "population":
                 playerpopulation = value
+                return True
+            if resource in ("stability",):
+                playerstability = max(0.0, min(100.0, float(value)))
+                return True
+            if resource in ("pp", "political_power"):
+                playerpp = value
+                return True
+            if resource in ("ap", "action_points"):
+                playerap = value
                 return True
 
         economystate = npcdirector.countryeconomy.get(country)
@@ -1710,6 +1752,9 @@ def main(eventbus=None, is_fullscreen=False):
         nonlocal playercountry
         nonlocal playergold
         nonlocal playerpopulation
+        nonlocal playerstability
+        nonlocal playerpp
+        nonlocal playerap
         nonlocal gamephase
         nonlocal currentturnnumber
         nonlocal countriesatwarset
@@ -1736,6 +1781,12 @@ def main(eventbus=None, is_fullscreen=False):
             playergold = max(0, int(commandstate.get("playergold", playergold)))
         if "playerpopulation" in commandstate:
             playerpopulation = max(0, int(commandstate.get("playerpopulation", playerpopulation)))
+        if "playerstability" in commandstate:
+            playerstability = max(0.0, min(100.0, float(commandstate.get("playerstability", playerstability))))
+        if "playerpp" in commandstate:
+            playerpp = max(0, int(commandstate.get("playerpp", playerpp)))
+        if "playerap" in commandstate:
+            playerap = max(0, int(commandstate.get("playerap", playerap)))
         if "currentturnnumber" in commandstate:
             currentturnnumber = max(1, int(commandstate.get("currentturnnumber", currentturnnumber)))
 
@@ -1916,7 +1967,20 @@ def main(eventbus=None, is_fullscreen=False):
         cameray = camerastate.y
 
         # draw the map inside the viewport subsurface
-        screen.fill(backgroundcolor)
+        map_w, map_h = screen.get_size()
+        if sea_gradient_cache is None or sea_gradient_cache_size != (map_w, map_h):
+            sea_gradient_cache_size = (map_w, map_h)
+            top_color = (15, 30, 70)
+            bottom_color = (5, 10, 35)
+            strip = pygame.Surface((1, map_h))
+            for y in range(map_h):
+                t = y / max(1, map_h - 1)
+                r = int(top_color[0] + (bottom_color[0] - top_color[0]) * t)
+                g = int(top_color[1] + (bottom_color[1] - top_color[1]) * t)
+                b = int(top_color[2] + (bottom_color[2] - top_color[2]) * t)
+                strip.set_at((0, y), (r, g, b))
+            sea_gradient_cache = pygame.transform.scale(strip, (map_w, map_h))
+        screen.blit(sea_gradient_cache, (0, 0))
 
         hovertext = None
         hoveredstateid = None
@@ -2327,19 +2391,25 @@ def main(eventbus=None, is_fullscreen=False):
         current_stats = {}
         if runtimeui._selectedmapcountry:
             selected_country = runtimeui._selectedmapcountry
-            base_stats = country_stats_lookup.get(selected_country, {})
             
-            total_pop = 0
             total_manpower = 0
             for prov in provincemap.values():
                 if prov.get("country") == selected_country:
-                    total_pop += int(prov.get("population", 0))
                     total_manpower += int(prov.get("troops", 0))
+
+            base_stats = country_stats_lookup.get(selected_country, {})
+            if playercountry and selected_country == playercountry:
+                stability = playerstability
+                population = playerpopulation
+            else:
+                npc_economy = getattr(npcdirector, "countryeconomy", {}).get(selected_country, {})
+                stability = npc_economy.get("stability", base_stats.get("stability", 50.0))
+                population = npc_economy.get("population", base_stats.get("population", 0))
             
             current_stats = {
-                "population": total_pop,  
-                "manpower": total_manpower,  
-                "stability": base_stats.get("stability", 50.0),
+                "population": population,
+                "manpower": total_manpower,
+                "stability": stability,
                 "leader": base_stats.get("leader", "Unknown"),
             }
        
@@ -2351,6 +2421,9 @@ def main(eventbus=None, is_fullscreen=False):
             currentturnnumber,
             playergold,
             playerpopulation,
+            playerstability,
+            playerpp,
+            playerap,
             selectedprovinceid,
             provincemap,
             recruitamount,
@@ -2366,6 +2439,11 @@ def main(eventbus=None, is_fullscreen=False):
             mouseposition_full,
             troopbadgelist,
             focustree.viewdata(),
+            researchdata={
+                "researched": frozenset(researched_set),
+                "researching_id": researching_node_id,
+                "researching_turns_remaining": researching_turns_remaining,
+            },
             warprogressdata=warprogressdata,
             selected_country_stats=current_stats,
         )
@@ -2452,14 +2530,20 @@ def main(eventbus=None, is_fullscreen=False):
 
             if uiaction == "declarewar" and gamephase == "play":
                 if countrymenutarget and countrymenutarget != playercountry:
-                    eventbus.emit(
-                        EngineEventType.WARDECLARED,
-                        {
-                            "attacker": playercountry,
-                            "defender": countrymenutarget,
-                            "turn": currentturnnumber,
-                        },
-                    )
+                    declarewarcost = economyconfig.get("declarewarcost", 75)
+                    if not developmentmode and playerpp < declarewarcost:
+                        runtimeui._hovertext = {"text": f"Not enough PP ({playerpp}/{declarewarcost})"}
+                    else:
+                        if not developmentmode:
+                            playerpp -= declarewarcost
+                        eventbus.emit(
+                            EngineEventType.WARDECLARED,
+                            {
+                                "attacker": playercountry,
+                                "defender": countrymenutarget,
+                                "turn": currentturnnumber,
+                            },
+                        )
                 runtimeui.select_map_country(None)
                 countrymenutarget = None
                 continue
@@ -2529,11 +2613,9 @@ def main(eventbus=None, is_fullscreen=False):
                 and gamephase == "play"
             ):
                 node_id = uiaction[1]
-                eventbus.emit("research_completed", {
-                    "country": playercountry,
-                    "node_id": node_id,
-                    "turn": currentturnnumber,
-                })
+                if node_id not in researched_set and node_id in _research_cost_lookup:
+                    researching_node_id = node_id
+                    researching_turns_remaining = max(1, _research_cost_lookup[node_id] // RESEARCH_RP_PER_TURN)
                 continue
 
 
@@ -2569,17 +2651,30 @@ def main(eventbus=None, is_fullscreen=False):
                             "appliedEffects": [dict(effect) for effect in focusturnresult.appliedeffects],
                         },
                     )
-                playergold,playerpopulation = applyendturneconomy(
+                playergold, playerpopulation, playerstability, playerpp, playerap = applyendturneconomy(
                     playercountry,
                     provincemap,
                     playergold,
                     playerpopulation,
+                    playerstability,
+                    playerpp,
+                    playerap,
                 )
                 npcdirector.sync_player_wars(playercountry, countriesatwarset, warpairset=warpairset)
                 npcdirector.executeturn(
                     movementorderlist,
                     currentturnnumber,
                 )
+                if researching_node_id and researching_turns_remaining > 0:
+                    researching_turns_remaining -= 1
+                    if researching_turns_remaining <= 0:
+                        researched_set.add(researching_node_id)
+                        eventbus.emit("research_completed", {
+                            "country": playercountry,
+                            "node_id": researching_node_id,
+                            "turn": currentturnnumber,
+                        })
+                        researching_node_id = None
                 frontlineupdates = refreshfrontlines()
                 currentturnnumber += 1
                 routepreviewset = frontlineupdates
@@ -2591,6 +2686,9 @@ def main(eventbus=None, is_fullscreen=False):
                         "playerCountry": playercountry,
                         "playerGold": playergold,
                         "playerPopulation": playerpopulation,
+                        "playerStability": playerstability,
+                        "playerPP": playerpp,
+                        "playerAP": playerap,
                     },
                 )
                 continue
@@ -2994,6 +3092,10 @@ def main(eventbus=None, is_fullscreen=False):
                     sourceprovince["troops"] -= movingtroopcount
                     markprovincetroopactivity(sourceprovince, currentturnnumber)
 
+                    moveorderapcost = economyconfig.get("moveorderapcost", 10)
+                    if not developmentmode:
+                        playerap = max(0, playerap - moveorderapcost)
+
                     movementorderlist.append(
                         {
                             "amount": movingtroopcount,
@@ -3023,7 +3125,7 @@ def main(eventbus=None, is_fullscreen=False):
             elif event.type == pygame.MOUSEWHEEL:
                 if devconsole.visible:
                     continue
-                if runtimeui.focusview.isopen:
+                if runtimeui.focusview.isopen or runtimeui.researchview.isopen:
                     continue
 
                 
@@ -3061,17 +3163,30 @@ def main(eventbus=None, is_fullscreen=False):
                                 "appliedEffects": [dict(effect) for effect in focusturnresult.appliedeffects],
                             },
                         )
-                    playergold, playerpopulation = applyendturneconomy(
+                    playergold, playerpopulation, playerstability, playerpp, playerap = applyendturneconomy(
                         playercountry,
                         provincemap,
                         playergold,
                         playerpopulation,
+                        playerstability,
+                        playerpp,
+                        playerap,
                     )
                     npcdirector.sync_player_wars(playercountry, countriesatwarset, warpairset=warpairset)
                     npcdirector.executeturn(
                         movementorderlist,
                         currentturnnumber,
                     )
+                    if researching_node_id and researching_turns_remaining > 0:
+                        researching_turns_remaining -= 1
+                        if researching_turns_remaining <= 0:
+                            researched_set.add(researching_node_id)
+                            eventbus.emit("research_completed", {
+                                "country": playercountry,
+                                "node_id": researching_node_id,
+                                "turn": currentturnnumber,
+                            })
+                            researching_node_id = None
                     frontlineupdates = refreshfrontlines()
                     currentturnnumber += 1
                     routepreviewset = frontlineupdates
@@ -3083,6 +3198,9 @@ def main(eventbus=None, is_fullscreen=False):
                             "playerCountry": playercountry,
                             "playerGold": playergold,
                             "playerPopulation": playerpopulation,
+                            "playerStability": playerstability,
+                            "playerPP": playerpp,
+                            "playerAP": playerap,
                         },
                     )
                     continue
@@ -3093,6 +3211,9 @@ def main(eventbus=None, is_fullscreen=False):
                     "playercountry": playercountry,
                     "playergold": playergold,
                     "playerpopulation": playerpopulation,
+                    "playerstability": playerstability,
+                    "playerpp": playerpp,
+                    "playerap": playerap,
                     "gamephase": gamephase,
                     "currentturnnumber": currentturnnumber,
                     "countriesatwarset": set(countriesatwarset),

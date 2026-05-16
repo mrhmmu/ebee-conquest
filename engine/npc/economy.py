@@ -28,12 +28,18 @@ class NpcEconomyPlanner:
     def initializecountryeconomy(self, countryeconomy):
         startinggold = int(self.economyconfig.get("startinggold", 0))
         startingpopulation = int(self.economyconfig.get("startingpopulation", 0))
+        startingstability = float(self.economyconfig.get("startingstability", 50.0))
+        startingpp = int(self.economyconfig.get("startingpp", 200))
+        startingap = int(self.economyconfig.get("startingap", 100))
 
         for countryname in self.countryindex.allcountries():
             if countryname not in countryeconomy:
                 countryeconomy[countryname] = {
                     "gold": startinggold,
                     "population": startingpopulation,
+                    "stability": startingstability,
+                    "pp": startingpp,
+                    "ap": startingap,
                 }
 
     def countcontrolledstates(self, controlledprovinceids):
@@ -46,7 +52,7 @@ class NpcEconomyPlanner:
             return
 
         controlledprovincecount = len(controlledprovinceids)
-        goldincome, populationgrowth = getendturneconomydelta(
+        goldincome, populationgrowth, stabilitydelta, ppincome, apincome = getendturneconomydelta(
             controlledprovincecount,
             economyconfig=self.economyconfig,
         )
@@ -58,6 +64,9 @@ class NpcEconomyPlanner:
 
         economystate["gold"] += goldincome
         economystate["population"] += populationgrowth
+        economystate["stability"] = max(0.0, min(100.0, economystate.get("stability", 50.0) + stabilitydelta))
+        economystate["pp"] = economystate.get("pp", 0) + ppincome
+        economystate["ap"] = economystate.get("ap", 0) + apincome
 
     def pickrecruitprovinceids(self, countryname, warlookup, maxcount=1, personality=None):
         _ = personality

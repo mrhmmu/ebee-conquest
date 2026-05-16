@@ -738,20 +738,23 @@ class EngineUI:
         currentturnnumber,
         playergold,
         playerpopulation,
-        selectedprovinceid,
-        provincemap,
-        recruitamount,
-        recruitenabled,
-        developmentmode,
-        recruitgoldcost,
-        recruitpopulationcost,
-        countrymenutarget,
-        countriesatwarset,
-        selectedtroopentries,
-        frontlineplacementmode,
-        hovertext,
-        mouseposition,
-        troopbadgelist,
+        playerstability=None,
+        playerpp=None,
+        playerap=None,
+        selectedprovinceid=None,
+        provincemap=None,
+        recruitamount=0,
+        recruitenabled=False,
+        developmentmode=False,
+        recruitgoldcost=0,
+        recruitpopulationcost=0,
+        countrymenutarget=None,
+        countriesatwarset=None,
+        selectedtroopentries=None,
+        frontlineplacementmode=False,
+        hovertext=None,
+        mouseposition=None,
+        troopbadgelist=None,
     ):
         
         #print("sync", gamephase, pendingcountry)
@@ -776,9 +779,22 @@ class EngineUI:
             self.showplayelements()
 
 
+            if playerap is not None:
+                self.playerap = playerap
+            if playerpp is not None:
+                self.playerpp = playerpp
+            if playerstability is not None:
+                self.playerstability = playerstability
+
             headertext = (
                 f"{playercountry} | turn {currentturnnumber} | gold {playergold} | population {playerpopulation}"
             )
+            if hasattr(self, 'playerstability'):
+                headertext += f" | stability {self.playerstability:.0f}"
+            if hasattr(self, 'playerpp'):
+                headertext += f" | PP {int(self.playerpp)}"
+            if hasattr(self, 'playerap'):
+                headertext += f" | AP {int(self.playerap)}"
             self.hudheadertext = headertext
 
 

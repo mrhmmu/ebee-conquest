@@ -1,0 +1,62 @@
+{
+  "id": "weapons",
+  "label": "Weapons",
+  "nodes": [
+    {"id": "basic_small_arms",          "label": "Basic Small Arms",              "cost":  150, "col": 4, "row": 0,  "prereqs": []},
+
+    {"id": "standardized_ammunition",   "label": "Standardized Ammunition",       "cost":  200, "col": 3, "row": 1,  "prereqs": ["basic_small_arms"]},
+    {"id": "service_pistols",           "label": "Service Pistols",               "cost":  150, "col": 4, "row": 1,  "prereqs": ["basic_small_arms"]},
+    {"id": "bolt_action_rifles",        "label": "Bolt-Action Rifles",            "cost":  200, "col": 5, "row": 1,  "prereqs": ["basic_small_arms"]},
+
+    {"id": "improved_rifle_sights",     "label": "Improved Rifle Sights",         "cost":  250, "col": 5, "row": 2,  "prereqs": ["bolt_action_rifles"]},
+    {"id": "combat_shotguns",           "label": "Combat Shotguns",               "cost":  250, "col": 3, "row": 2,  "prereqs": ["service_pistols"]},
+    {"id": "light_machine_guns",        "label": "Light Machine Guns",            "cost":  300, "col": 6, "row": 2,  "prereqs": ["standardized_ammunition", "bolt_action_rifles"]},
+    {"id": "submachine_guns",           "label": "Submachine Guns",               "cost":  350, "col": 2, "row": 2,  "prereqs": ["standardized_ammunition", "service_pistols"]},
+
+    {"id": "grenade_designs",           "label": "Fragmentation Grenades",        "cost":  300, "col": 1, "row": 3,  "prereqs": ["standardized_ammunition"]},
+    {"id": "marksman_doctrine",         "label": "Marksman Doctrine",             "cost":  350, "col": 5, "row": 3,  "prereqs": ["improved_rifle_sights"]},
+    {"id": "heavy_machine_guns",        "label": "Heavy Machine Guns",            "cost":  450, "col": 6, "row": 3,  "prereqs": ["light_machine_guns"]},
+    {"id": "automatic_rifle_platforms", "label": "Automatic Rifle Platforms",     "cost":  500, "col": 4, "row": 3,  "prereqs": ["light_machine_guns", "submachine_guns"]},
+
+    {"id": "rifle_grenades",            "label": "Rifle Grenades",                "cost":  450, "col": 1, "row": 4,  "prereqs": ["grenade_designs", "bolt_action_rifles"]},
+    {"id": "portable_mortars",          "label": "Portable Mortars",              "cost":  500, "col": 7, "row": 4,  "prereqs": ["grenade_designs", "heavy_machine_guns"]},
+    {"id": "sniper_rifles",             "label": "Sniper Rifles",                 "cost":  550, "col": 5, "row": 4,  "prereqs": ["marksman_doctrine"]},
+    {"id": "assault_rifles",            "label": "Assault Rifles",                "cost":  650, "col": 4, "row": 4,  "prereqs": ["automatic_rifle_platforms", "marksman_doctrine"]},
+
+    {"id": "grenade_launchers",         "label": "Grenade Launchers",             "cost":  600, "col": 1, "row": 5,  "prereqs": ["rifle_grenades"]},
+    {"id": "recoilless_weapons",        "label": "Recoilless Weapons",            "cost":  700, "col": 2, "row": 5,  "prereqs": ["heavy_machine_guns", "grenade_launchers"]},
+    {"id": "modern_infantry_kits",      "label": "Modern Infantry Weapon Kits",   "cost":  750, "col": 4, "row": 5,  "prereqs": ["assault_rifles", "grenade_launchers"]},
+    {"id": "medium_mortars",            "label": "Medium Mortars",                "cost":  700, "col": 7, "row": 5,  "prereqs": ["portable_mortars"]},
+
+    {"id": "field_artillery",           "label": "Field Artillery",               "cost":  800, "col": 7, "row": 6,  "prereqs": ["medium_mortars"]},
+    {"id": "anti_armor_rifles",         "label": "Anti-Armor Rifles",             "cost":  700, "col": 2, "row": 6,  "prereqs": ["recoilless_weapons"]},
+    {"id": "special_operations_weapons","label": "Special Operations Weapons",    "cost":  850, "col": 4, "row": 6,  "prereqs": ["modern_infantry_kits", "sniper_rifles"]},
+    {"id": "night_combat_optics",       "label": "Night Combat Optics",           "cost":  900, "col": 5, "row": 6,  "prereqs": ["sniper_rifles", "modern_infantry_kits"]},
+
+    {"id": "anti_armor_launchers",      "label": "Anti-Armor Launchers",          "cost": 1000, "col": 2, "row": 7,  "prereqs": ["anti_armor_rifles", "recoilless_weapons"]},
+    {"id": "howitzers",                 "label": "Howitzers",                     "cost": 1100, "col": 7, "row": 7,  "prereqs": ["field_artillery"]},
+    {"id": "counter_battery_methods",   "label": "Counter-Battery Methods",       "cost": 1000, "col": 8, "row": 7,  "prereqs": ["field_artillery"]},
+    {"id": "squad_support_weapons",     "label": "Squad Support Weapons",         "cost":  950, "col": 4, "row": 7,  "prereqs": ["modern_infantry_kits", "heavy_machine_guns"]},
+
+    {"id": "rocket_artillery",          "label": "Rocket Artillery",              "cost": 1300, "col": 8, "row": 8,  "prereqs": ["howitzers"]},
+    {"id": "advanced_ballistics",       "label": "Advanced Ballistics",           "cost": 1250, "col": 6, "row": 8,  "prereqs": ["howitzers", "sniper_rifles"]},
+    {"id": "guided_anti_armor_weapons", "label": "Guided Anti-Armor Weapons",     "cost": 1450, "col": 2, "row": 8,  "prereqs": ["anti_armor_launchers", "night_combat_optics"]},
+    {"id": "thermal_weapon_sights",     "label": "Thermal Weapon Sights",         "cost": 1200, "col": 5, "row": 8,  "prereqs": ["night_combat_optics"]},
+
+    {"id": "precision_artillery",       "label": "Precision Artillery",           "cost": 1550, "col": 7, "row": 9,  "prereqs": ["advanced_ballistics", "counter_battery_methods"]},
+    {"id": "surface_to_air_weapons",    "label": "Surface-to-Air Weapons",        "cost": 1500, "col": 9, "row": 9,  "prereqs": ["rocket_artillery", "advanced_ballistics"]},
+    {"id": "advanced_sniper_systems",   "label": "Advanced Sniper Systems",       "cost": 1400, "col": 5, "row": 9,  "prereqs": ["thermal_weapon_sights", "advanced_ballistics"]},
+    {"id": "integrated_infantry_weapons","label": "Integrated Infantry Weapons",  "cost": 1500, "col": 4, "row": 9,  "prereqs": ["squad_support_weapons", "thermal_weapon_sights"]},
+
+    {"id": "portable_air_defense",      "label": "Portable Air Defense",          "cost": 1700, "col": 9, "row": 10, "prereqs": ["surface_to_air_weapons"]},
+    {"id": "drone_recon_weapons_integration","label": "Drone Recon Weapon Integration","cost": 1650, "col": 6, "row": 10, "prereqs": ["thermal_weapon_sights", "precision_artillery"]},
+
+    {"id": "loitering_munitions",       "label": "Loitering Munitions",           "cost": 2000, "col": 6, "row": 11, "prereqs": ["drone_recon_weapons_integration", "guided_anti_armor_weapons"]},
+    {"id": "advanced_air_defense_grid", "label": "Advanced Air Defense Grid",     "cost": 2300, "col": 9, "row": 11, "prereqs": ["portable_air_defense", "counter_battery_methods"]},
+
+    {"id": "electronic_warfare_weapons","label": "Electronic Warfare Weapons",    "cost": 2400, "col": 5, "row": 12, "prereqs": ["loitering_munitions", "integrated_infantry_weapons"]},
+    {"id": "directed_energy_weapons",   "label": "Directed Energy Weapons",       "cost": 3250, "col": 9, "row": 12, "prereqs": ["advanced_air_defense_grid", "electronic_warfare_weapons"]},
+
+    {"id": "autonomous_weapon_coordination","label": "Autonomous Weapon Coordination","cost": 3750, "col": 7, "row": 13, "prereqs": ["loitering_munitions", "electronic_warfare_weapons"]}
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "id": "surveillance",
+  "label": "Surveillance",
+  "nodes": [
+    {
+      "id": "reconnaissance",
+      "label": "Reconnaissance",
+      "cost": 40,
+      "col": 1, "row": 0,
+      "prereqs": []
+    },
+    {
+      "id": "radar_technology",
+      "label": "Radar Technology",
+      "cost": 80,
+      "col": 0, "row": 1,
+      "prereqs": ["reconnaissance"]
+    },
+    {
+      "id": "signal_intelligence",
+      "label": "Signal Intelligence",
+      "cost": 90,
+      "col": 2, "row": 1,
+      "prereqs": ["reconnaissance"]
+    },
+    {
+      "id": "satellite_recon",
+      "label": "Satellite Recon",
+      "cost": 180,
+      "col": 0, "row": 2,
+      "prereqs": ["radar_technology"]
+    },
+    {
+      "id": "cyber_monitoring",
+      "label": "Cyber Monitoring",
+      "cost": 160,
+      "col": 2, "row": 2,
+      "prereqs": ["signal_intelligence"]
+    },
+    {
+      "id": "total_awareness",
+      "label": "Total Awareness",
+      "cost": 300,
+      "col": 1, "row": 3,
+      "prereqs": ["satellite_recon", "cyber_monitoring"]
+    }
+  ]
+}

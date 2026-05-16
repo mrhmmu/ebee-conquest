@@ -1,0 +1,48 @@
+{
+  "id": "naval",
+  "label": "Naval",
+  "nodes": [
+    {
+      "id": "patrol_boats",
+      "label": "Patrol Boats",
+      "cost": 50,
+      "col": 1, "row": 0,
+      "prereqs": []
+    },
+    {
+      "id": "destroyers",
+      "label": "Destroyers",
+      "cost": 100,
+      "col": 0, "row": 1,
+      "prereqs": ["patrol_boats"]
+    },
+    {
+      "id": "submarines",
+      "label": "Submarines",
+      "cost": 120,
+      "col": 2, "row": 1,
+      "prereqs": ["patrol_boats"]
+    },
+    {
+      "id": "cruisers",
+      "label": "Cruisers",
+      "cost": 150,
+      "col": 0, "row": 2,
+      "prereqs": ["destroyers"]
+    },
+    {
+      "id": "aircraft_carriers",
+      "label": "Aircraft Carriers",
+      "cost": 250,
+      "col": 2, "row": 2,
+      "prereqs": ["submarines"]
+    },
+    {
+      "id": "naval_dominance",
+      "label": "Naval Dominance",
+      "cost": 350,
+      "col": 1, "row": 3,
+      "prereqs": ["cruisers", "aircraft_carriers"]
+    }
+  ]
+}
