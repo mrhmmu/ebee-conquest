@@ -58,8 +58,7 @@ _WEAPON_TREE: list[dict] = [
     {
         "id":          "Weapon_1",
         "label":       "Basic small arms ",
-        "description": "Standard-issue rifles and sidearms.",
-        "flavour":     "The foundation of every fighting force.",
+        
         "cost":        50,
         "col": 1, "row": 0,
         "prereqs":     [],
@@ -67,8 +66,7 @@ _WEAPON_TREE: list[dict] = [
     {
         "id":          "heavy_weapons",
         "label":       "weapon 1",
-        "description": "Machine guns, mortars, and anti-tank rifles.",
-        "flavour":     "Suppression is a force multiplier.",
+       
         "cost":        80,
         "col": 0, "row": 1,
         "prereqs":     ["Weapon_1"],
@@ -76,8 +74,7 @@ _WEAPON_TREE: list[dict] = [
     {
         "id":          "field_artillery",
         "label":       "weapon 2",
-        "description": "Towed howitzers for indirect fire support.",
-        "flavour":     "Artillery conquers; infantry occupies.",
+        
         "cost":        90,
         "col": 2, "row": 1,
         "prereqs":     ["Weapon_1"],
@@ -85,8 +82,7 @@ _WEAPON_TREE: list[dict] = [
     {
         "id":          "armored_cars",
         "label":       "weapon 3",
-        "description": "Fast reconnaissance and fire-support vehicles.",
-        "flavour":     "Speed is its own armour.",
+       
         "cost":        100,
         "col": 0, "row": 2,
         "prereqs":     ["heavy_weapons"],
@@ -94,8 +90,7 @@ _WEAPON_TREE: list[dict] = [
     {
         "id":          "battle_tanks",
         "label":       "weapon 4",
-        "description": "Heavy armor for breakthrough operations.",
-        "flavour":     "Steel will break what rifles cannot.",
+        
         "cost":        140,
         "col": 1, "row": 2,
         "prereqs":     ["heavy_weapons", "field_artillery"],
@@ -103,8 +98,6 @@ _WEAPON_TREE: list[dict] = [
     {
         "id":          "rocket_artillery",
         "label":       "weapon 5",
-        "description": "Multiple-launch systems for area denial.",
-        "flavour":     "Rain fire across the front.",
         "cost":        130,
         "col": 2, "row": 2,
         "prereqs":     ["field_artillery"],
@@ -112,8 +105,6 @@ _WEAPON_TREE: list[dict] = [
     {
         "id":          "advanced_tanks",
         "label":       "weapon 6",
-        "description": "Composite armour and stabilised main guns.",
-        "flavour":     "Mastery of the armoured battlefield.",
         "cost":        200,
         "col": 1, "row": 3,
         "prereqs":     ["battle_tanks"],
@@ -427,8 +418,8 @@ class ResearchTreeView:
         line_h    = font.get_height()
 
    
-        desc_lines   = _wrap_text(font, node["description"], tip_w - pad * 2)
-        flavour_lines = _wrap_text(font, node["flavour"],    tip_w - pad * 2)
+        
+        
         status_line  = {
             "researched": "✓ Already researched",
             "available":  f"Click to research  (cost: {node['cost']})",
@@ -437,59 +428,12 @@ class ResearchTreeView:
         prereq_names = [self._nodes[p]["label"].replace("\n", " ")
                         for p in node["prereqs"] if p in self._nodes]
 
-        tip_h = (pad * 2
-                 + title_font.get_height() + 6
-                 + len(desc_lines)    * line_h + 6
-                 + len(flavour_lines) * line_h + 8
-                 + line_h                    
-                 + (line_h + 4 if prereq_names else 0))
+       
 
     
-        tx = mouse[0] + 16
-        ty = mouse[1] + 8
-        if tx + tip_w > panel_rect.right - 4:
-            tx = mouse[0] - tip_w - 16
-        if ty + tip_h > panel_rect.bottom - 4:
-            ty = max(panel_rect.top + 4, mouse[1] - tip_h)
+  
 
-        tip_rect = pygame.Rect(tx, ty, tip_w, tip_h)
-        pygame.draw.rect(surface, _C_TOOLTIP_BG, tip_rect, border_radius=4)
-        pygame.draw.rect(surface, _C_TOOLTIP_BD, tip_rect, 1, border_radius=4)
 
-        y = ty + pad
 
      
-        ts = title_font.render(node["label"].replace("\n", " "), True, _C_TITLE)
-        surface.blit(ts, (tx + pad, y))
-        y += title_font.get_height() + 6
-
-        for dl in desc_lines:
-            ds = font.render(dl, True, _C_TOOLTIP_TEXT)
-            surface.blit(ds, (tx + pad, y))
-            y += line_h
-        y += 4
-
-     
-        for fl in flavour_lines:
-            fs = font.render(fl, True, _C_TOOLTIP_SUB)
-            surface.blit(fs, (tx + pad + 4, y))
-            y += line_h
-        y += 6
-
-       
-        if prereq_names:
-            req_txt = "Requires: " + ", ".join(prereq_names)
-            for rl in _wrap_text(font, req_txt, tip_w - pad * 2):
-                rs = font.render(rl, True, _C_TOOLTIP_SUB)
-                surface.blit(rs, (tx + pad, y))
-                y += line_h
-            y += 4
-
-
-        status_colors = {
-            "researched": _C_NODE_DONE_LB,
-            "available":  _C_TOOLTIP_COST,
-            "locked":     (200, 80, 80),
-        }
-        ss = font.render(status_line, True, status_colors[status])
-        surface.blit(ss, (tx + pad, y))
+        
