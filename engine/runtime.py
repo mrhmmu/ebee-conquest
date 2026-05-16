@@ -2522,6 +2522,21 @@ def main(eventbus=None, is_fullscreen=False):
                 continue
 
 
+            if (
+                isinstance(uiaction, tuple)
+                and len(uiaction) == 2
+                and uiaction[0] == "research_node"
+                and gamephase == "play"
+            ):
+                node_id = uiaction[1]
+                eventbus.emit("research_completed", {
+                    "country": playercountry,
+                    "node_id": node_id,
+                    "turn": currentturnnumber,
+                })
+                continue
+
+
 
 
             # for quick search: "end turn button"

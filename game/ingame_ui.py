@@ -5,6 +5,7 @@ import pygame
 
 from engine.gui import gui_drawtroopcountbadge, gui_mergetroopbadgeentries
 from .focusui import FocusTreeView
+from .researchui import ResearchTreeView
 
 ctypes.windll.user32.SetProcessDPIAware()
 
@@ -149,6 +150,7 @@ class InGameUI:
         self._hovertext = None
         self._hovermousepos = (0, 0)
         self.focusview = FocusTreeView()
+        self.researchview = ResearchTreeView()
         self.pausemenuopen = False
         self.active_left_tab = None
         self.warprogressopen = False
@@ -492,6 +494,9 @@ class InGameUI:
         if self.focusview.isopen:
             return self.focusview.handleevent(event)
 
+        if self.researchview.isopen:
+            return self.researchview.handleevent(event)
+
         if event.type != pygame.MOUSEBUTTONDOWN or event.button != 1:
             return None
 
@@ -514,7 +519,9 @@ class InGameUI:
         for item, rect in (self.bottom_buttons.item_rects or {}).items():
             if rect.collidepoint(pos):
                 self.bottom_buttons.set_selected(item)
-                self.applylayout()   
+                self.applylayout()
+                if item == "RESEARCH":
+                    self.researchview.toggleview()
                 return None
 
       
@@ -567,6 +574,8 @@ class InGameUI:
        
         if self.focusview.pointerover(mouseposition):
             return True
+        if self.researchview.pointerover(mouseposition):
+            return True
         if self._endturn_rect.collidepoint(mouseposition):
             return True
         if self.leftbar.rect.collidepoint(mouseposition):
@@ -586,39 +595,7 @@ class InGameUI:
 
 
 
-        if self.bottom_buttons.selected == "RESEARCH" and self.gamephase!= "choosecountry" and not self._countrymenutarget:
-            overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 200))
-            surface.blit(overlay, (0, 0))
-
-            title = self.title_font.render("RESEARCH", True, (230, 230, 230))
-            surface.blit(title, title.get_rect(center=(surface.get_width() // 2, self._research_btn_rects[0].y - 60)))
-            back_color = (60, 60, 60) if not self._research_back_rect.collidepoint(mouse) else (50, 120, 255)
-            pygame.draw.rect(surface, (255, 0, 0), self._research_back_rect, 2)  # DEBUG
-            
-            pygame.draw.rect(surface, back_color, self._research_back_rect, border_radius=4)
-            pygame.draw.rect(surface, (35, 35, 35), self._research_back_rect, 2, border_radius=4)
-            back_txt = self.title_font.render("BACK", True, (240, 240, 240))
-            surface.blit(back_txt, back_txt.get_rect(center=self._research_back_rect.center))
-
-
-
-
-        
-
-            for i in range(4):
-                rect = self._research_btn_rects[i]
-                label = f"weapons {i+1}"
-                enabled = True
-                color = (50, 120, 255) if rect.collidepoint(mouse) else (50, 50, 50)
-                if not enabled:
-                    color = (70, 70, 70)
-                text_color = (240, 240, 240) if enabled else (170, 170, 170)
-                pygame.draw.rect(surface, color, rect, border_radius=4)
-                pygame.draw.rect(surface, (35, 35, 35), rect, 2, border_radius=4)
-                txt = self.title_font.render(label, True, text_color)
-                surface.blit(txt, txt.get_rect(center=rect.center))
-            return
+    
 
         if self.gamephase == "choosecountry":
             # minimal UI only during choosecountry
@@ -888,6 +865,11 @@ class InGameUI:
                 self._draw_pausemenu(surface)
             return
 
+        if self.researchview.isopen:
+            self.researchview.draw(surface, self.title_font, self.font, mouse)
+            if self.pausemenuopen:
+                self._draw_pausemenu(surface)
+            return
 
         selected_tab = self.bottom_buttons.selected
         if not self.rightbar.rect.width:
