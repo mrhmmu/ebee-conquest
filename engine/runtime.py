@@ -19,7 +19,8 @@ LEADERS = {
     "Myanmar": "Min Aung Hlaing",
     "Cambodia": "Hun Manet",
     "Laos": "Thongloun Sisoulith",
-    "Brunei": "Hassanal Bolkiah"
+    "Brunei": "Hassanal Bolkiah",
+    "Timor_Leste" : "José Ramos-Horta"
 }
 
 
