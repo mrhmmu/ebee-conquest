@@ -69,7 +69,7 @@ class BottomButtons:
             self.selected = (self.items[-1] if self.items else None)
 
     def set_selected(self, item: str | None):
-        if item in self.items:
+        if item is None or item in self.items:
             self.selected = item
 
     def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos):
@@ -167,6 +167,7 @@ class InGameUI:
         self._merge_rect = pygame.Rect(0, 0, 10, 10)
         self._frontline_rect = pygame.Rect(0, 0, 10, 10)
         self._research_btn_rects = [pygame.Rect(0, 0, 10, 10) for _ in range(4)]
+        self._research_back_rect = pygame.Rect(0, 0, 10, 10)
 
         self.leftbar = LeftBar(pygame.Rect(0, 0, 10, 10))
         self.bottom_buttons = BottomButtons(pygame.Rect(0, 0, 10, 10))
@@ -192,7 +193,7 @@ class InGameUI:
                 "RECRUIT",
             ]
         )
-        self.bottom_buttons.set_selected("RESEARCH")
+        self.bottom_buttons.set_selected(None)
 
         self.topbar = Panel(pygame.Rect(0, 0, 10, 10), (0, 0, 0))
         self.rightbar = Panel(pygame.Rect(0, 0, 10, 10), (0, 0, 0))
@@ -283,7 +284,7 @@ class InGameUI:
 
         self.topbar.rect = pygame.Rect(0, 0, window_width, self.topbar_height)
 
-        # chrome visibility depends on phase + whether right tab has content
+        
         if self.gamephase == "choosecountry":
             show_left = False
             show_bottom = False
@@ -295,7 +296,6 @@ class InGameUI:
                 self._countrymenutarget
                 or self._selectedtroopentries
                 or self.bottom_buttons.selected == "RECRUIT"
-                or self.bottom_buttons.selected == "RESEARCH"
                 or self.active_left_tab == "COMBAT"
                 or self._selectedmapcountry
             )
@@ -347,17 +347,28 @@ class InGameUI:
         self._split_rect = pygame.Rect(content_x, btn_y, btn_w, btn_h)
         self._merge_rect = pygame.Rect(content_x + btn_w + 10, btn_y, btn_w, btn_h)
         self._frontline_rect = pygame.Rect(content_x + (btn_w + 10) * 2, btn_y, btn_w, btn_h)
-        btn_w = content_w
-        btn_h = 50
-        btn_gap = 15
-        start_y = content_y + 60
+        btn_w = 400
+        btn_h = 60
+        btn_gap = 20
+        total_h = 4 * btn_h + 3 * btn_gap
+        start_x = (window_width - btn_w) // 2
+        start_y = (window_height - total_h) // 2
         for i in range(4):
             self._research_btn_rects[i] = pygame.Rect(
-                content_x,
+                start_x,
                 start_y + i * (btn_h + btn_gap),
                 btn_w,
                 btn_h
             )
+
+        last_weapon_rect = self._research_btn_rects[3]
+
+        back_w = 120
+        back_h = 40
+        back_x = start_x
+        back_y = last_weapon_rect.bottom + 20
+
+        self._research_back_rect = pygame.Rect(back_x, back_y, back_w, back_h)
         menu_w = min(320, max(220, window_width - 80))
         menu_h = 170
         menu_x = max(0, (window_width - menu_w) // 2)
@@ -500,32 +511,31 @@ class InGameUI:
                     return self.actiontogglefocuspanel
                 return None
 
-        # bottom tabs
         for item, rect in (self.bottom_buttons.item_rects or {}).items():
             if rect.collidepoint(pos):
-        
                 self.bottom_buttons.set_selected(item)
+                self.applylayout()   
                 return None
 
-        # bottom end turn
+      
         if self._endturn_rect.collidepoint(pos):
             return self.actionendturn
 
         selected_tab = self.bottom_buttons.selected
+
         if selected_tab == "RESEARCH" and not self._countrymenutarget:
+
+            if self._research_back_rect.collidepoint(pos):
+                self.bottom_buttons.set_selected(None)
+                self.applylayout()
+                return "back_from_research"
+
             for i in range(4):
                 if self._research_btn_rects[i].collidepoint(pos):
                     return getattr(self, f"actionweapon{i+1}")
 
-        # right panel: country menu overrides all tabs
-        if self._countrymenutarget:
-            if self._declarewar_rect.collidepoint(pos):
-                alreadyatwar = self._countrymenutarget in self._countriesatwarset
-                if not alreadyatwar:
-                    return self.actiondeclarewar
             return None
 
-        # right panel: recruit action only visible in RECRUIT tab
 
         if self.active_left_tab == "COMBAT" and not self._countrymenutarget:
             if self._war_progress_rect.collidepoint(pos):
@@ -537,7 +547,7 @@ class InGameUI:
                     return self.actionrecruit
                 return None
 
-        # troop selection actions (only in RECRUIT tab and only when troops > 0)
+      
         if selected_tab == "RECRUIT" and self._selectedtroopentries:
             selected = [e for e in self._selectedtroopentries if isinstance(e, dict)]
             totaltroops = sum(max(0, int(e.get("troops", 0))) for e in selected)
@@ -563,6 +573,8 @@ class InGameUI:
             return True
         if self.topbar.rect.collidepoint(mouseposition):
             return True
+        if self.bottom_buttons.selected == "RESEARCH" and not self._countrymenutarget:
+            return True
         if self.rightbar.rect.collidepoint(mouseposition):
             return True
         if self.bottombar.rect.collidepoint(mouseposition):
@@ -571,6 +583,42 @@ class InGameUI:
 
     def draw(self, surface: pygame.Surface):
         mouse = pygame.mouse.get_pos()
+
+
+
+        if self.bottom_buttons.selected == "RESEARCH" and self.gamephase!= "choosecountry" and not self._countrymenutarget:
+            overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 200))
+            surface.blit(overlay, (0, 0))
+
+            title = self.title_font.render("RESEARCH", True, (230, 230, 230))
+            surface.blit(title, title.get_rect(center=(surface.get_width() // 2, self._research_btn_rects[0].y - 60)))
+            back_color = (60, 60, 60) if not self._research_back_rect.collidepoint(mouse) else (50, 120, 255)
+            pygame.draw.rect(surface, (255, 0, 0), self._research_back_rect, 2)  # DEBUG
+            
+            pygame.draw.rect(surface, back_color, self._research_back_rect, border_radius=4)
+            pygame.draw.rect(surface, (35, 35, 35), self._research_back_rect, 2, border_radius=4)
+            back_txt = self.title_font.render("BACK", True, (240, 240, 240))
+            surface.blit(back_txt, back_txt.get_rect(center=self._research_back_rect.center))
+
+
+
+
+        
+
+            for i in range(4):
+                rect = self._research_btn_rects[i]
+                label = f"weapons {i+1}"
+                enabled = True
+                color = (50, 120, 255) if rect.collidepoint(mouse) else (50, 50, 50)
+                if not enabled:
+                    color = (70, 70, 70)
+                text_color = (240, 240, 240) if enabled else (170, 170, 170)
+                pygame.draw.rect(surface, color, rect, border_radius=4)
+                pygame.draw.rect(surface, (35, 35, 35), rect, 2, border_radius=4)
+                txt = self.title_font.render(label, True, text_color)
+                surface.blit(txt, txt.get_rect(center=rect.center))
+            return
 
         if self.gamephase == "choosecountry":
             # minimal UI only during choosecountry
@@ -945,22 +993,7 @@ class InGameUI:
             y_cursor = max(y_cursor, content_rect.y + 24)
 
 
-        elif selected_tab == "RESEARCH" and not self._countrymenutarget:
-            surface.blit(self.font.render("Research Tree", True, (240, 240, 240)), (content_rect.x, y_cursor))
-            y_cursor += 30
-
-            for i in range(4):
-                rect = self._research_btn_rects[i]
-                label = f"weapons {i+1}"
-                enabled = True
-                color = (0,20,180) if rect.collidepoint(mouse) else (50,50,50)
-                if not enabled:
-                    color = (70, 70, 70)
-                text_color = (240, 240, 240) if enabled else (170, 170, 170)
-                pygame.draw.rect(surface, color, rect, border_radius=1)
-                pygame.draw.rect(surface, (35, 35, 35), rect, 1, border_radius=1)
-                txt = self.font.render(label, True, text_color)
-                surface.blit(txt, txt.get_rect(center=rect.center))
+      
 
         # Troop info + decision buttons only show in RECRUIT tab, and only when troops > 0
         if selected_tab == "RECRUIT" and not self._countrymenutarget:
