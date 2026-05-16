@@ -434,7 +434,8 @@ class InGameUI:
 
         for item, rect in (self.leftbar.item_rects or {}).items():
             if rect.collidepoint(pos):
-
+                
+                self.ui_click_sound.play()
                 self.active_left_tab = item
                 self.applylayout()
                 if item == "FOCUS TREE":
