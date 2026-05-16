@@ -420,13 +420,7 @@ class ResearchTreeView:
    
         
         
-        status_line  = {
-            "researched": "✓ Already researched",
-            "available":  f"Click to research  (cost: {node['cost']})",
-            "locked":     "✗ Prerequisites not met",
-        }[status]
-        prereq_names = [self._nodes[p]["label"].replace("\n", " ")
-                        for p in node["prereqs"] if p in self._nodes]
+      
 
        
 
