@@ -1,0 +1,48 @@
+{
+  "id": "tanks",
+  "label": "Tanks",
+  "nodes": [
+    {
+      "id": "light_tanks",
+      "label": "Light Tanks",
+      "cost": 60,
+      "col": 1, "row": 0,
+      "prereqs": []
+    },
+    {
+      "id": "medium_tanks",
+      "label": "Medium Tanks",
+      "cost": 100,
+      "col": 0, "row": 1,
+      "prereqs": ["light_tanks"]
+    },
+    {
+      "id": "tank_destroyers",
+      "label": "Tank Destroyers",
+      "cost": 110,
+      "col": 2, "row": 1,
+      "prereqs": ["light_tanks"]
+    },
+    {
+      "id": "heavy_tanks",
+      "label": "Heavy Tanks",
+      "cost": 150,
+      "col": 0, "row": 2,
+      "prereqs": ["medium_tanks"]
+    },
+    {
+      "id": "amphibious_tanks",
+      "label": "Amphibious Tanks",
+      "cost": 130,
+      "col": 2, "row": 2,
+      "prereqs": ["tank_destroyers"]
+    },
+    {
+      "id": "modern_mbt",
+      "label": "Modern MBT",
+      "cost": 250,
+      "col": 1, "row": 3,
+      "prereqs": ["heavy_tanks", "amphibious_tanks"]
+    }
+  ]
+}

@@ -104,7 +104,7 @@ class FocusTree:
     # create empty focus tree with no focus
     @classmethod
     def empty(cls, country: str | None = None):
-        name = f"{country} Focus Tree" if country else "Focus Tree"
+        name = f"{country} National Policy" if country else "National Policy"
         return cls("empty", country, name, ())
 
 

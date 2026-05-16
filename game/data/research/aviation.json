@@ -1,0 +1,48 @@
+{
+  "id": "aviation",
+  "label": "Aviation",
+  "nodes": [
+    {
+      "id": "biplanes",
+      "label": "Biplanes",
+      "cost": 50,
+      "col": 1, "row": 0,
+      "prereqs": []
+    },
+    {
+      "id": "fighters",
+      "label": "Fighters",
+      "cost": 90,
+      "col": 0, "row": 1,
+      "prereqs": ["biplanes"]
+    },
+    {
+      "id": "bombers",
+      "label": "Bombers",
+      "cost": 100,
+      "col": 2, "row": 1,
+      "prereqs": ["biplanes"]
+    },
+    {
+      "id": "jet_fighters",
+      "label": "Jet Fighters",
+      "cost": 160,
+      "col": 0, "row": 2,
+      "prereqs": ["fighters"]
+    },
+    {
+      "id": "strategic_bombers",
+      "label": "Strategic Bombers",
+      "cost": 170,
+      "col": 2, "row": 2,
+      "prereqs": ["bombers"]
+    },
+    {
+      "id": "stealth_aircraft",
+      "label": "Stealth Aircraft",
+      "cost": 300,
+      "col": 1, "row": 3,
+      "prereqs": ["jet_fighters", "strategic_bombers"]
+    }
+  ]
+}
