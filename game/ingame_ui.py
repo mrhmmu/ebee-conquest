@@ -451,6 +451,7 @@ class InGameUI:
 
         # bottom end turn
         if self._endturn_rect.collidepoint(pos):
+            self.ui_click_sound.play()
             return self.actionendturn
 
         selected_tab = self.bottom_buttons.selected

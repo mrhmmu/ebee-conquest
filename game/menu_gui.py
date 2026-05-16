@@ -8,7 +8,7 @@ from game.scripts import ScriptMenuController
 pygame.init()
 pygame.mixer.init()
 
-button_click_sound = pygame.mixer.Sound("assets/sounds/click.wav")
+button_click_sound = pygame.mixer.Sound("game/sounds/click.wav")
 button_click_sound.set_volume(0.4)
 
 
