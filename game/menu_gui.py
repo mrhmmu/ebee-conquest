@@ -164,6 +164,7 @@ while run:
 
 
                 if button_m < mouse[0] < button_m + button_width and 310 < mouse[1] < 363:
+                    button_click_sound.play()
                     is_fullscreen = not is_fullscreen
                     if is_fullscreen:
                         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
@@ -180,7 +181,8 @@ while run:
 
 
                 if button_m < mouse[0] < button_m + button_width and 420 < mouse[1] < 473:
-                            menu = 'main'
+                    button_click_sound.play()
+                    menu = 'main'
 
             elif menu == 'main':
                 if button_m < mouse[0] < button_m + button_width and button_y_positions['new_game'] < mouse[1] < button_y_positions['new_game'] + button_height:
@@ -189,15 +191,19 @@ while run:
                     sys.exit()
                     
                 elif button_m < mouse[0] < button_m+button_width and button_y_positions['settings'] < mouse[1] < button_y_positions['settings'] + button_height:
+                    button_click_sound.play()
                     menu = 'settings'
 
                 elif button_m < mouse[0] < button_m + button_width and button_y_positions['scripts'] < mouse[1] < button_y_positions['scripts'] + button_height:
+                    button_click_sound.play()
                     menu = 'scripts'
 
                 elif button_m < mouse[0] < button_m + button_width and button_y_positions['quit'] < mouse[1] < button_y_positions['quit'] + button_height:
+                    button_click_sound.play()
                     run = False
 
                 elif button_m < mouse[0] < button_m + button_width and button_y_positions['load_game'] < mouse[1] < button_y_positions['load_game'] + button_height:
+                    button_click_sound.play()
                     print('loading game....')
 
 
