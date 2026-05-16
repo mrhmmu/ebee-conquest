@@ -111,6 +111,10 @@ class InGameUI:
     actionstartfocus = "startfocus"
     actionpausemenu = "pausemenu"
     actionquitgame = "quitgame"
+    actionweapon1 = "weapon_1"
+    actionweapon2 = "weapon_2"
+    actionweapon3 = "weapon_3"
+    actionweapon4 = "weapon_4"
 
     def __init__(self, window_size):
         self.window_size = window_size
@@ -162,6 +166,7 @@ class InGameUI:
         self._split_rect = pygame.Rect(0, 0, 10, 10)
         self._merge_rect = pygame.Rect(0, 0, 10, 10)
         self._frontline_rect = pygame.Rect(0, 0, 10, 10)
+        self._research_btn_rects = [pygame.Rect(0, 0, 10, 10) for _ in range(4)]
 
         self.leftbar = LeftBar(pygame.Rect(0, 0, 10, 10))
         self.bottom_buttons = BottomButtons(pygame.Rect(0, 0, 10, 10))
@@ -290,6 +295,7 @@ class InGameUI:
                 self._countrymenutarget
                 or self._selectedtroopentries
                 or self.bottom_buttons.selected == "RECRUIT"
+                or self.bottom_buttons.selected == "RESEARCH"
                 or self.active_left_tab == "COMBAT"
                 or self._selectedmapcountry
             )
@@ -336,11 +342,22 @@ class InGameUI:
 
         # troop decision buttons at the bottom of right panel
         btn_w = (content_w - 20) // 3
-        btn_h = 34
+        btn_h = 50
         btn_y = (self.rightbar.rect.bottom - 12 - btn_h) if self.rightbar.rect.width else (self.map_rect.bottom - 12 - btn_h)
         self._split_rect = pygame.Rect(content_x, btn_y, btn_w, btn_h)
         self._merge_rect = pygame.Rect(content_x + btn_w + 10, btn_y, btn_w, btn_h)
         self._frontline_rect = pygame.Rect(content_x + (btn_w + 10) * 2, btn_y, btn_w, btn_h)
+        btn_w = content_w
+        btn_h = 50
+        btn_gap = 15
+        start_y = content_y + 60
+        for i in range(4):
+            self._research_btn_rects[i] = pygame.Rect(
+                content_x,
+                start_y + i * (btn_h + btn_gap),
+                btn_w,
+                btn_h
+            )
         menu_w = min(320, max(220, window_width - 80))
         menu_h = 170
         menu_x = max(0, (window_width - menu_w) // 2)
@@ -495,6 +512,10 @@ class InGameUI:
             return self.actionendturn
 
         selected_tab = self.bottom_buttons.selected
+        if selected_tab == "RESEARCH" and not self._countrymenutarget:
+            for i in range(4):
+                if self._research_btn_rects[i].collidepoint(pos):
+                    return getattr(self, f"actionweapon{i+1}")
 
         # right panel: country menu overrides all tabs
         if self._countrymenutarget:
@@ -917,11 +938,29 @@ class InGameUI:
 
         
         elif selected_tab == "RECRUIT":
-            # place recruit action near troop decision buttons
+           
             self._recruit_action_rect.topleft = (content_rect.x, self._split_rect.y - 44)
             recruit_label = f"RECRUIT +{int(self.recruitamount)}"
             draw_btn(self._recruit_action_rect, self.recruitenabled, recruit_label, primary=True)
             y_cursor = max(y_cursor, content_rect.y + 24)
+
+
+        elif selected_tab == "RESEARCH" and not self._countrymenutarget:
+            surface.blit(self.font.render("Research Tree", True, (240, 240, 240)), (content_rect.x, y_cursor))
+            y_cursor += 30
+
+            for i in range(4):
+                rect = self._research_btn_rects[i]
+                label = f"weapons {i+1}"
+                enabled = True
+                color = (0,20,180) if rect.collidepoint(mouse) else (50,50,50)
+                if not enabled:
+                    color = (70, 70, 70)
+                text_color = (240, 240, 240) if enabled else (170, 170, 170)
+                pygame.draw.rect(surface, color, rect, border_radius=1)
+                pygame.draw.rect(surface, (35, 35, 35), rect, 1, border_radius=1)
+                txt = self.font.render(label, True, text_color)
+                surface.blit(txt, txt.get_rect(center=rect.center))
 
         # Troop info + decision buttons only show in RECRUIT tab, and only when troops > 0
         if selected_tab == "RECRUIT" and not self._countrymenutarget:
