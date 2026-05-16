@@ -892,7 +892,7 @@ class InGameUI:
 
         elif self._selectedmapcountry and not self._countrymenutarget:
             big_flag = self._get_big_flag(self._selectedmapcountry, size=(240, 144))
-            y_cursor = content_rect.y + 12
+            y_cursor = content_rect.y + 45
             if big_flag:
                 flag_x = content_rect.x + (content_rect.width - big_flag.get_width()) // 2
                 surface.blit(big_flag, (flag_x, y_cursor))
@@ -915,15 +915,7 @@ class InGameUI:
                 surface.blit(self.font.render(line, True, (212, 212, 212)), (content_rect.x, y_cursor))
                 y_cursor += 20
 
-        elif self._selectedmapcountry and not self._countrymenutarget:
-            big_flag = self._get_big_flag(self._selectedmapcountry, size=(240, 144))
-            y_cursor = content_rect.y + 12
-            if big_flag:
-                flag_x = content_rect.x + (content_rect.width - big_flag.get_width()) // 2
-                surface.blit(big_flag, (flag_x, y_cursor))
-                y_cursor += big_flag.get_height() + 16
-            name_surf = self.title_font.render(str(self._selectedmapcountry), True, (240, 240, 240))
-            surface.blit(name_surf, (content_rect.x, y_cursor))
+        
         elif selected_tab == "RECRUIT":
             # place recruit action near troop decision buttons
             self._recruit_action_rect.topleft = (content_rect.x, self._split_rect.y - 44)
