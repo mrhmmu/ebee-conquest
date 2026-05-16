@@ -32,5 +32,36 @@
             "Bhumjaithai Party",
             "United Thai Nation Party"
         ]
-    }
+    },
+    {
+        "Country": "Indonesia",
+        "Leader": "Prabowo Subianto",
+        "LeadingParty": "Gerindra",
+        "MajorPoliticalParties": [
+            "Gerindra",
+            "PDI-P",
+            "Golkar",
+            "PKB",
+            "NasDem"
+        ]
+    },
+    {
+        "Country": "Brunei",
+        "Leader": "Hassanal Bolkiah",
+        "LeadingParty": "Absolute Monarchy",
+        "MajorPoliticalParties": [
+            "National Development Party"
+        ]
+    },
+    {
+        "Country": "Philippines",
+        "Leader": "Bongbong Marcos",
+        "LeadingParty": "Partido Federal ng Pilipinas",
+        "MajorPoliticalParties": [
+            "Partido Federal ng Pilipinas",
+            "Lakas-CMD",
+            "Liberal Party",
+            "Nacionalista Party"
+        ]
+    } 
 ]
