@@ -1,4 +1,5 @@
 import ctypes
+import math
 import os
 from datetime import date, timedelta
 
@@ -10,6 +11,20 @@ from .researchui import ResearchTreeView
 
 ctypes.windll.user32.SetProcessDPIAware()
 
+_C_BG0 = (11, 18, 32)
+_C_BG1 = (17, 24, 39)
+_C_PANEL = (23, 32, 51)
+_C_PANEL_DARK = (12, 18, 29)
+_C_PANEL_HOVER = (28, 39, 59)
+_C_GOLD = (212, 169, 77)
+_C_GOLD_BRIGHT = (240, 198, 116)
+_C_STEEL = (132, 145, 160)
+_C_TEXT = (229, 231, 235)
+_C_TEXT_MUTED = (156, 163, 175)
+_C_SUCCESS = (67, 181, 129)
+_C_DANGER = (224, 93, 93)
+_C_INFO = (74, 143, 231)
+
 
 class Panel:
     def __init__(self, rect: pygame.Rect, color=(40, 40, 40)):
@@ -18,7 +33,7 @@ class Panel:
 
     def draw(self, surface: pygame.Surface):
         pygame.draw.rect(surface, self.color, self.rect)
-        pygame.draw.rect(surface, (25, 25, 25), self.rect, 1)
+        pygame.draw.rect(surface, (45, 56, 70), self.rect, 1)
 
 
 class LeftBar:
@@ -47,24 +62,48 @@ class LeftBar:
             fitted = candidate
         return fitted.rstrip() + suffix if fitted else suffix
 
-    def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos, font_bold=None, icons=None, selected=None):
+    def draw(
+        self,
+        surface: pygame.Surface,
+        font: pygame.font.Font,
+        mouse_pos,
+        font_bold=None,
+        icons=None,
+        selected=None,
+        statusdata=None,
+        notification_count=0,
+    ):
         icons = icons or {}
-        pygame.draw.rect(surface, (34, 37, 42), self.rect)
-        pygame.draw.rect(surface, (20, 22, 25), self.rect, 1)
+        statusdata = statusdata or {}
+        notification_count = max(0, int(notification_count or 0))
+        pygame.draw.rect(surface, _C_PANEL_DARK, self.rect)
+        pygame.draw.rect(surface, (28, 38, 52), self.rect, 1)
+        pygame.draw.line(surface, (76, 64, 38), self.rect.topright, self.rect.bottomright, 1)
 
         self.item_rects = {}
-        radius = 8
-        for i, item in enumerate(self.items):
-            if not str(item).strip():
+        radius = 6
+        item_index = 0
+        for item in self.items:
+            item_text = str(item).strip()
+            if not item_text:
+                divider_y = self.rect.y + 22 + item_index * 60
+                pygame.draw.line(
+                    surface,
+                    (76, 64, 38),
+                    (self.rect.x + 14, divider_y),
+                    (self.rect.right - 14, divider_y),
+                    1,
+                )
                 continue
 
-            x = self.rect.x + 10
-            y = self.rect.y + 60 + (i * 50)
-            w = self.rect.width - 20
-            h = 40
+            x = self.rect.x + 14
+            y = self.rect.y + 16 + item_index * 66
+            w = self.rect.width - 28
+            h = 52
             rect = pygame.Rect(x, y, w, h)
-            item_key = str(item).strip().upper()
+            item_key = item_text.upper()
             self.item_rects[item_key] = rect
+            item_index += 1
 
             hovered = rect.collidepoint(mouse_pos)
             glow = self._hover_glow.get(item_key, 0.0)
@@ -75,63 +114,110 @@ class LeftBar:
             self._hover_glow[item_key] = glow
 
             is_selected = item_key == selected
-            if "CLEAR ALL" in item:
-                color = (52, 57, 50) if hovered else (40, 45, 40)
+            if "CLEAR ALL" in item_text:
+                color = (35, 45, 47) if hovered else (20, 30, 36)
             elif is_selected:
-                color = (47, 43, 34) if not hovered else (56, 50, 38)
+                color = (37, 35, 28) if not hovered else (50, 44, 30)
             else:
-                if hovered:
-                    color = (43, 48, 54)
-                else:
-                    color = (25, 29, 33)
+                color = _C_PANEL_HOVER if hovered else (14, 22, 33)
 
+            shadow = pygame.Surface((w + 8, h + 8), pygame.SRCALPHA)
+            pygame.draw.rect(shadow, (0, 0, 0, 75), shadow.get_rect(), border_radius=radius + 2)
+            surface.blit(shadow, (x - 3, y - 1))
             pygame.draw.rect(surface, color, rect, border_radius=radius)
-            if "CLEAR ALL" in item:
-                bordercolor = (96, 112, 92) if hovered else (67, 78, 66)
+            if "CLEAR ALL" in item_text:
+                bordercolor = (89, 110, 105) if hovered else (45, 61, 66)
             elif is_selected:
-                bordercolor = (168, 139, 70)
+                bordercolor = _C_GOLD
             elif hovered:
-                bordercolor = (86, 96, 106)
+                bordercolor = (88, 101, 118)
             else:
-                bordercolor = (57, 63, 70)
+                bordercolor = (42, 55, 72)
             pygame.draw.rect(surface, bordercolor, rect, 1, border_radius=radius)
 
             if glow > 0.01:
-                glowcolor = (168, 139, 70) if (is_selected or "CLEAR ALL" in item) else (116, 126, 136)
-                glow_surf = pygame.Surface((w + 18, h + 18), pygame.SRCALPHA)
+                glowcolor = _C_GOLD if (is_selected or "CLEAR ALL" in item_text) else (92, 116, 144)
+                glow_surf = pygame.Surface((w + 20, h + 20), pygame.SRCALPHA)
                 for ring in range(4):
-                    alpha = int(glow * (28 - ring * 6))
+                    alpha = int(glow * (36 - ring * 7))
                     if alpha <= 0:
                         continue
                     offset = ring * 2 + 2
                     pygame.draw.rect(
                         glow_surf,
                         (*glowcolor, alpha),
-                        (9 - offset, 9 - offset, w + offset * 2, h + offset * 2),
+                        (10 - offset, 10 - offset, w + offset * 2, h + offset * 2),
                         border_radius=radius + offset,
                         width=2,
                     )
-                surface.blit(glow_surf, (x - 9, y - 9))
+                surface.blit(glow_surf, (x - 10, y - 10))
+
+            if is_selected:
+                pygame.draw.rect(surface, _C_GOLD, pygame.Rect(rect.x, rect.y + 8, 3, rect.height - 16), border_radius=2)
 
             icon = icons.get(item_key)
-            icon_x = x + 12
-            text_x = x + 42
+            icon_x = x + 18
+            text_x = x + 54
             if icon is not None:
                 icon_rect = icon.get_rect()
                 icon_rect.topleft = (icon_x, y + (h - icon_rect.height) // 2)
                 surface.blit(icon, icon_rect)
             else:
-                text_x = x + 14
+                text_x = x + 18
+
+            badge_text = None
+            badge_rect = None
+            badge_reserved_width = 0
+            if item_key == "NOTIFICATIONS" and notification_count > 0:
+                badge_label = "99+" if notification_count > 99 else str(notification_count)
+                badge_text = font_bold.render(badge_label, True, (11, 18, 32)) if font_bold else font.render(badge_label, True, (11, 18, 32))
+                badge_rect = pygame.Rect(0, 0, max(20, badge_text.get_width() + 8), 20)
+                badge_rect.center = (rect.right - 20, rect.centery)
+                badge_reserved_width = badge_rect.width + 12
 
             text_color = (224, 228, 231) if hovered else (202, 207, 211)
-            if "CLEAR ALL" in item:
+            if "CLEAR ALL" in item_text:
                 text_color = (224, 228, 216)
             if is_selected:
                 text_color = (239, 224, 185)
             active_font = font_bold if (is_selected and font_bold) else font
-            fitted_text = self._fit_text(active_font, item, rect.right - text_x - 10)
+            fitted_text = self._fit_text(active_font, item_text, rect.right - text_x - 12 - badge_reserved_width)
             text = active_font.render(fitted_text, True, text_color)
             surface.blit(text, (text_x, y + (h - text.get_height()) // 2))
+
+            if badge_text is not None and badge_rect is not None:
+                pygame.draw.rect(surface, _C_GOLD_BRIGHT, badge_rect, border_radius=4)
+                surface.blit(badge_text, badge_text.get_rect(center=badge_rect.center))
+
+        status_rect = pygame.Rect(self.rect.x + 14, self.rect.bottom - 202, self.rect.width - 28, 184)
+        if status_rect.height > 0 and status_rect.top > self.rect.y + 430:
+            shadow = pygame.Surface((status_rect.width + 8, status_rect.height + 8), pygame.SRCALPHA)
+            pygame.draw.rect(shadow, (0, 0, 0, 90), shadow.get_rect(), border_radius=6)
+            surface.blit(shadow, (status_rect.x - 3, status_rect.y - 2))
+            pygame.draw.rect(surface, (9, 15, 24), status_rect, border_radius=6)
+            pygame.draw.rect(surface, (42, 55, 72), status_rect, 1, border_radius=6)
+            title = font.render("SYSTEM STATUS", True, _C_TEXT_MUTED)
+            surface.blit(title, (status_rect.x + 14, status_rect.y + 14))
+            graph_rect = pygame.Rect(status_rect.x + 14, status_rect.y + 46, status_rect.width - 28, 76)
+            pygame.draw.rect(surface, (7, 12, 20), graph_rect, border_radius=4)
+            for offset in range(1, 4):
+                gy = graph_rect.y + offset * graph_rect.height // 4
+                pygame.draw.line(surface, (26, 37, 51), (graph_rect.x, gy), (graph_rect.right, gy), 1)
+            points = []
+            tick = pygame.time.get_ticks() * 0.001
+            for index in range(42):
+                px = graph_rect.x + int(index * graph_rect.width / 41)
+                wave = math.sin(tick * 0.8 + index * 0.34) * 0.32 + math.sin(tick * 1.7 + index * 0.12) * 0.16
+                py = graph_rect.centery + int(wave * graph_rect.height * 0.38)
+                points.append((px, py))
+            if len(points) >= 2:
+                pygame.draw.lines(surface, _C_SUCCESS, False, points, 1)
+            fps_value = float(statusdata.get("fps", 0.0) or 0.0)
+            latency_value = float(statusdata.get("latency_ms", 0.0) or 0.0)
+            fps_text = font.render(f"FPS {fps_value:4.1f}", True, _C_TEXT)
+            latency_text = font.render(f"Frame {latency_value:4.1f} ms", True, _C_TEXT_MUTED)
+            surface.blit(fps_text, (status_rect.x + 14, status_rect.bottom - 48))
+            surface.blit(latency_text, (status_rect.x + 14, status_rect.bottom - 25))
 
 
 class BottomButtons:
@@ -152,19 +238,29 @@ class BottomButtons:
         if item is None or item in self.items:
             self.selected = item
 
-    def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos, font_bold=None):
-        w = 120
-        h = 30
-        spacing = 10
-        radius = 8
+    def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos, font_bold=None, icons=None):
+        icons = icons or {}
+        w = 142
+        h = 64
+        spacing = 8
+        radius = 6
         total_width = len(self.items) * w + (len(self.items) - 1) * spacing if self.items else 0
         available_width = max(0, self.rect.width)
         start_x = self.rect.x + max(0, (available_width - total_width) // 2)
+        dock_rect = pygame.Rect(start_x - 14, self.rect.y + 9, total_width + 28, h + 18)
+
+        dock_shadow = pygame.Surface((dock_rect.width + 14, dock_rect.height + 14), pygame.SRCALPHA)
+        pygame.draw.rect(dock_shadow, (0, 0, 0, 88), dock_shadow.get_rect(), border_radius=10)
+        surface.blit(dock_shadow, (dock_rect.x - 7, dock_rect.y - 3))
+        dock_surface = pygame.Surface(dock_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(dock_surface, (10, 15, 23, 176), dock_surface.get_rect(), border_radius=8)
+        pygame.draw.rect(dock_surface, (44, 58, 76, 150), dock_surface.get_rect(), 1, border_radius=8)
+        surface.blit(dock_surface, dock_rect.topleft)
 
         self.item_rects = {}
         for i, item in enumerate(self.items):
             x = start_x + (i * (w + spacing))
-            y = self.rect.y + 10
+            y = self.rect.y + 18
             rect = pygame.Rect(x, y, w, h)
             self.item_rects[item] = rect
 
@@ -177,34 +273,43 @@ class BottomButtons:
             self._hover_glow[item] = glow
 
             if item == self.selected:
-                color = (54, 46, 32) if not hovered else (64, 54, 37)
+                color = (36, 34, 27) if not hovered else (48, 42, 30)
             else:
-                color = (45, 50, 56) if hovered else (24, 27, 31)
+                color = (26, 36, 52) if hovered else (15, 23, 35)
 
+            card_shadow = pygame.Surface((w + 8, h + 8), pygame.SRCALPHA)
+            pygame.draw.rect(card_shadow, (0, 0, 0, 80), card_shadow.get_rect(), border_radius=radius + 2)
+            surface.blit(card_shadow, (x - 3, y - 1))
             pygame.draw.rect(surface, color, rect, border_radius=radius)
             bordercolor = (177, 145, 70) if item == self.selected else ((82, 91, 101) if hovered else (58, 63, 70))
             pygame.draw.rect(surface, bordercolor, rect, 1, border_radius=radius)
+            if item == self.selected:
+                pygame.draw.line(surface, _C_GOLD_BRIGHT, (rect.x + 16, rect.y + 2), (rect.right - 16, rect.y + 2), 2)
 
             if glow > 0.01:
-                glow_surf = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
+                glow_surf = pygame.Surface((w + 22, h + 22), pygame.SRCALPHA)
                 for ring in range(5):
-                    ring_alpha = int(glow * (18 - ring * 3))
+                    ring_alpha = int(glow * (28 - ring * 5))
                     if ring_alpha <= 0:
                         continue
                     offset = ring * 2 + 2
                     gw = w + offset * 2
                     gh = h + offset * 2
-                    pygame.draw.rect(glow_surf, (190, 160, 86, ring_alpha),
-                        (12 - offset, 12 - offset, gw, gh),
+                    pygame.draw.rect(glow_surf, (*_C_GOLD, ring_alpha),
+                        (11 - offset, 11 - offset, gw, gh),
                         border_radius=radius + offset, width=2)
-                surface.blit(glow_surf, (x - 12, y - 12))
+                surface.blit(glow_surf, (x - 11, y - 11))
 
             text_color = (226, 230, 234) if hovered else (200, 205, 210)
             if item == self.selected and not hovered:
                 text_color = (239, 224, 185)
             active_font = font_bold if (hovered and font_bold) else font
+            icon = icons.get(item)
+            if icon is not None:
+                icon_rect = icon.get_rect(center=(rect.centerx, rect.y + 22))
+                surface.blit(icon, icon_rect)
             text = active_font.render(item, True, text_color)
-            text_rect = text.get_rect(center=rect.center)
+            text_rect = text.get_rect(center=(rect.centerx, rect.y + 48))
             surface.blit(text, text_rect)
 
 
@@ -227,15 +332,18 @@ class InGameUI:
 
     def __init__(self, window_size):
         self.window_size = window_size
-        self.title_font = pygame.font.SysFont("Verdana", 16, bold=True)
-        self.font = pygame.font.SysFont("Verdana", 14)
-        self.font_bold = pygame.font.SysFont("Verdana", 14, bold=True)
+        self.title_font = pygame.font.SysFont("bahnschrift", 22, bold=True)
+        self.font = pygame.font.SysFont("segoeui", 14)
+        self.font_bold = pygame.font.SysFont("segoeui", 14, bold=True)
+        self.small_font = pygame.font.SysFont("segoeui", 11)
+        self.small_font_bold = pygame.font.SysFont("segoeui", 11, bold=True)
+        self.number_font = pygame.font.SysFont("bahnschrift", 17, bold=True)
 
-        self.leftbar_width = 232
-        self.topbar_height = 50
+        self.leftbar_width = 256
+        self.topbar_height = 80
         # widened so troop/country panels fit "seamlessly" in the right tab
-        self.rightbar_width = 356
-        self.bottombar_height = 43
+        self.rightbar_width = 380
+        self.bottombar_height = 104
 
         self.gamephase = "choosecountry"
         self.pendingcountry = None
@@ -268,6 +376,8 @@ class InGameUI:
         self.warprogressopen = False
         self._warprogressdata = {}
         self.actionwarprogress = "warprogress"
+        self._systemstatus = {"fps": 0.0, "latency_ms": 0.0}
+        self._notificationcount = 0
         self._startdate = date(2020, 1, 1)
         self._daysperturn = 5
 
@@ -291,13 +401,21 @@ class InGameUI:
         self._frontline_rect = pygame.Rect(0, 0, 10, 10)
         self._research_btn_rects = [pygame.Rect(0, 0, 10, 10) for _ in range(4)]
         self._research_back_rect = pygame.Rect(0, 0, 10, 10)
+        self._warprogress_popup_rect = pygame.Rect(0, 0, 10, 10)
+        self._warprogress_close_rect = pygame.Rect(0, 0, 10, 10)
+        self._warprogress_header_rect = pygame.Rect(0, 0, 10, 10)
+        self._warprogress_tab_rects = []
+        self._warprogress_popup_pos = None
+        self._warprogress_dragging = False
+        self._warprogress_drag_offset = (0, 0)
+        self._warprogress_active_index = 0
 
         self.leftbar = LeftBar(pygame.Rect(0, 0, 10, 10))
         self.bottom_buttons = BottomButtons(pygame.Rect(0, 0, 10, 10))
 
         self.leftbar.set_items(
             [
-                "      CLEAR ALL    ",
+                "CLEAR ALL",
                 "",
                 "NOTIFICATIONS",
                 "LOGISTICS",
@@ -318,9 +436,9 @@ class InGameUI:
         )
         self.bottom_buttons.set_selected(None)
 
-        self.topbar = Panel(pygame.Rect(0, 0, 10, 10), (0, 0, 0))
-        self.rightbar = Panel(pygame.Rect(0, 0, 10, 10), (0, 0, 0))
-        self.bottombar = Panel(pygame.Rect(0, 0, 10, 10), (29, 29, 29))
+        self.topbar = Panel(pygame.Rect(0, 0, 10, 10), _C_PANEL_DARK)
+        self.rightbar = Panel(pygame.Rect(0, 0, 10, 10), _C_PANEL_DARK)
+        self.bottombar = Panel(pygame.Rect(0, 0, 10, 10), (5, 10, 17))
         self.pause_menu = pygame.Rect(0,0,10,10)
         self.quit_menu = pygame.Rect(0,0,10,10)
         self.map_rect = pygame.Rect(0, 0, 10, 10)
@@ -383,6 +501,15 @@ class InGameUI:
             "COMBAT": "combat.svg",
             "INTEL": "intel.svg",
             "NATIONAL POLICY": "national_policy.svg",
+            "RESEARCH": "research.svg",
+            "DIPLOMACY": "diplomacy.svg",
+            "TRADE": "trade.svg",
+            "PRODUCTION": "production.svg",
+            "CONSTRUCTION": "construction.svg",
+            "RECRUIT": "recruit.svg",
+            "war_progress": "war_progress.svg",
+            "occupation": "occupation.svg",
+            "close": "close.svg",
         }
 
         for key, filename in icon_files.items():
@@ -391,7 +518,7 @@ class InGameUI:
                 continue
             try:
                 image = pygame.image.load(filepath).convert_alpha()
-                icons[key] = pygame.transform.smoothscale(image, (18, 18))
+                icons[key] = pygame.transform.smoothscale(image, (20, 20))
             except pygame.error:
                 continue
 
@@ -460,64 +587,127 @@ class InGameUI:
         fitted = self._fit_text(font, text, max_width)
         surface.blit(font.render(fitted, True, color), (x, y))
 
+    def _draw_vertical_gradient_rect(self, surface, rect, top_color, bottom_color, radius=0):
+        if rect.width <= 0 or rect.height <= 0:
+            return
+        gradient = pygame.Surface(rect.size, pygame.SRCALPHA)
+        for y in range(rect.height):
+            t = y / max(1, rect.height - 1)
+            color = tuple(int(top_color[i] + (bottom_color[i] - top_color[i]) * t) for i in range(3))
+            pygame.draw.line(gradient, (*color, 255), (0, y), (rect.width, y))
+        if radius:
+            mask = pygame.Surface(rect.size, pygame.SRCALPHA)
+            pygame.draw.rect(mask, (255, 255, 255, 255), mask.get_rect(), border_radius=radius)
+            gradient.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        surface.blit(gradient, rect.topleft)
+
+    def _draw_glass_panel(self, surface, rect, radius=6, border=(58, 71, 89), glow=False):
+        if glow:
+            glow_surface = pygame.Surface((rect.width + 24, rect.height + 24), pygame.SRCALPHA)
+            pygame.draw.rect(glow_surface, (212, 169, 77, 35), glow_surface.get_rect(), border_radius=radius + 8)
+            surface.blit(glow_surface, (rect.x - 12, rect.y - 12))
+        shadow = pygame.Surface((rect.width + 10, rect.height + 10), pygame.SRCALPHA)
+        pygame.draw.rect(shadow, (0, 0, 0, 105), shadow.get_rect(), border_radius=radius + 2)
+        surface.blit(shadow, (rect.x - 4, rect.y - 2))
+        self._draw_vertical_gradient_rect(surface, rect, (22, 31, 48), (9, 15, 24), radius=radius)
+        pygame.draw.rect(surface, border, rect, 1, border_radius=radius)
+        pygame.draw.line(surface, (41, 49, 60), (rect.x + 8, rect.y + 1), (rect.right - 8, rect.y + 1), 1)
+
+    def _draw_bottombar_background(self, surface):
+        rect = self.bottombar.rect
+        if rect.width <= 0 or rect.height <= 0:
+            return
+        overlay = pygame.Surface(rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(overlay, (4, 9, 16, 158), overlay.get_rect())
+        pygame.draw.line(overlay, (212, 169, 77, 80), (0, 0), (rect.width, 0), 1)
+        pygame.draw.line(overlay, (74, 143, 231, 35), (0, 1), (rect.width, 1), 1)
+        surface.blit(overlay, rect.topleft)
+
     def _draw_topbar_background(self, surface):
         rect = self.topbar.rect
         if rect.width <= 0 or rect.height <= 0:
             return
 
-        pygame.draw.rect(surface, (11, 13, 16), rect)
-        pygame.draw.rect(surface, (24, 28, 34), pygame.Rect(rect.x, rect.y, rect.width, 1))
-        pygame.draw.rect(surface, (32, 26, 15), pygame.Rect(rect.x, rect.bottom - 3, rect.width, 1))
-        pygame.draw.rect(surface, (195, 151, 67), pygame.Rect(rect.x, rect.bottom - 2, rect.width, 1))
-        pygame.draw.rect(surface, (0, 0, 0), pygame.Rect(rect.x, rect.bottom - 1, rect.width, 1))
+        self._draw_vertical_gradient_rect(surface, rect, (13, 22, 36), (6, 10, 18))
+        pygame.draw.line(surface, (25, 34, 47), rect.topleft, rect.topright, 1)
+        pygame.draw.line(surface, (76, 64, 38), (rect.x, rect.bottom - 2), (rect.right, rect.bottom - 2), 1)
+        pygame.draw.line(surface, _C_GOLD, (rect.x, rect.bottom - 1), (rect.right, rect.bottom - 1), 1)
 
-    def _draw_resource_chip(self, surface, x, y, icon_key, text, max_right, accent=(200, 170, 80)):
+    def _draw_map_edge_shadows(self, surface):
+        rect = self.map_rect.clip(surface.get_rect())
+        if rect.width <= 0 or rect.height <= 0:
+            return
+
+        edge_w = max(96, int(rect.width * 0.11))
+        edge_w = max(1, min(rect.width // 2, edge_w))
+        shadow = pygame.Surface((edge_w, rect.height), pygame.SRCALPHA)
+        for step in range(edge_w):
+            t = step / max(1, edge_w - 1)
+            alpha = int(92 * (1.0 - t) ** 2.4)
+            pygame.draw.line(shadow, (0, 0, 0, alpha), (step, 0), (step, rect.height))
+
+        surface.blit(shadow, rect.topleft)
+        right_shadow = pygame.transform.flip(shadow, True, False)
+        surface.blit(right_shadow, (rect.right - edge_w, rect.y))
+
+        # A narrow contact shadow under fixed panels gives depth without a boxed vignette.
+        contact = pygame.Surface((rect.width, 18), pygame.SRCALPHA)
+        for step in range(contact.get_height()):
+            alpha = int(40 * (1.0 - step / max(1, contact.get_height() - 1)) ** 2)
+            pygame.draw.line(contact, (0, 0, 0, alpha), (0, step), (rect.width, step))
+        surface.blit(contact, rect.topleft)
+
+    def _draw_resource_chip(self, surface, x, y, icon_key, label, value, max_right, accent=(200, 170, 80)):
         icon = self._topbar_icons.get(icon_key)
-        text = str(text)
-        text_surface = self.font.render(text, True, (232, 232, 232))
-        icon_width = 18 if icon is not None else 0
-        icon_gap = 6 if icon is not None else 0
-        chip_width = 12 + icon_width + icon_gap + text_surface.get_width() + 12
-        chip_height = 28
+        value = str(value)
+        label = str(label)
+        value_surface = self.number_font.render(value, True, _C_TEXT)
+        label_surface = self.small_font.render(label, True, _C_TEXT_MUTED)
+        chip_width = max(112, value_surface.get_width() + 68, label_surface.get_width() + 56)
+        if icon_key == "date":
+            chip_width = max(148, value_surface.get_width() + 68, label_surface.get_width() + 56)
+        chip_height = 56
 
         if x + chip_width > max_right:
             return x, False
 
         rect = pygame.Rect(x, y, chip_width, chip_height)
-        pygame.draw.rect(surface, (23, 27, 31), rect, border_radius=5)
-        pygame.draw.rect(surface, (53, 57, 62), rect, 1, border_radius=5)
-        pygame.draw.line(surface, accent, (rect.x + 7, rect.y + 2), (rect.x + 7, rect.bottom - 3), 2)
+        self._draw_glass_panel(surface, rect, radius=6, border=(48, 62, 80))
+        pygame.draw.line(surface, accent, (rect.x + 8, rect.y + 9), (rect.x + 8, rect.bottom - 9), 2)
 
-        draw_x = rect.x + 12
+        draw_x = rect.x + 20
         if icon is not None:
-            surface.blit(icon, (draw_x, rect.y + (chip_height - icon.get_height()) // 2))
-            draw_x += icon.get_width() + icon_gap
-        surface.blit(text_surface, (draw_x, rect.y + (chip_height - text_surface.get_height()) // 2))
-        return rect.right + 8, True
+            surface.blit(icon, (draw_x, rect.y + 12))
+            draw_x += icon.get_width() + 12
+        surface.blit(value_surface, (draw_x, rect.y + 9))
+        surface.blit(label_surface, (draw_x, rect.y + 32))
+        return rect.right + 10, True
 
     def _draw_country_chip(self, surface, x, y, country_text, flag_img, max_right):
-        text_surface = self.font_bold.render(str(country_text), True, (238, 238, 238))
-        flag_width = 20 if flag_img is not None else 0
-        flag_gap = 7 if flag_img is not None else 0
-        chip_width = 12 + flag_width + flag_gap + text_surface.get_width() + 12
-        chip_height = 28
+        text_surface = self.title_font.render(str(country_text), True, _C_TEXT)
+        label_surface = self.small_font.render("PLAYER COUNTRY", True, _C_TEXT_MUTED)
+        flag_width = 32 if flag_img is not None else 0
+        flag_gap = 10 if flag_img is not None else 0
+        chip_width = max(200, 18 + flag_width + flag_gap + text_surface.get_width() + 36)
+        chip_height = 56
 
         if x + chip_width > max_right:
             return x, False
 
         rect = pygame.Rect(x, y, chip_width, chip_height)
-        pygame.draw.rect(surface, (28, 31, 36), rect, border_radius=5)
-        pygame.draw.rect(surface, (73, 67, 49), rect, 1, border_radius=5)
+        self._draw_glass_panel(surface, rect, radius=6, border=(73, 67, 49), glow=True)
 
-        draw_x = rect.x + 12
+        draw_x = rect.x + 16
         if flag_img is not None:
-            flag_rect = flag_img.get_rect()
+            scaled_flag = pygame.transform.smoothscale(flag_img, (32, 22))
+            flag_rect = scaled_flag.get_rect()
             flag_rect.topleft = (draw_x, rect.y + (chip_height - flag_rect.height) // 2)
-            surface.blit(flag_img, flag_rect)
-            draw_x += flag_img.get_width() + flag_gap
+            surface.blit(scaled_flag, flag_rect)
+            draw_x += scaled_flag.get_width() + flag_gap
 
-        surface.blit(text_surface, (draw_x, rect.y + (chip_height - text_surface.get_height()) // 2))
-        return rect.right + 8, True
+        surface.blit(text_surface, (draw_x, rect.y + 9))
+        surface.blit(label_surface, (draw_x, rect.y + 34))
+        return rect.right + 12, True
 
     def applylayout(self):
         window_width, window_height = self.window_size
@@ -543,7 +733,7 @@ class InGameUI:
         bottom_h = self.bottombar_height if show_bottom else 0
         right_w = self.rightbar_width if show_right else 0
 
-        self.leftbar.rect = pygame.Rect(0, 0, left_w, window_height)
+        self.leftbar.rect = pygame.Rect(0, self.topbar_height, left_w, max(0, window_height - self.topbar_height))
 
         right_x = max(0, window_width - right_w)
         self.rightbar.rect = pygame.Rect(
@@ -554,20 +744,21 @@ class InGameUI:
         )
 
         bottom_y = max(0, window_height - bottom_h)
-        self.bottombar.rect = pygame.Rect(0, bottom_y, window_width, bottom_h)
+        self.bottombar.rect = pygame.Rect(left_w, bottom_y, max(1, window_width - left_w), bottom_h)
         self.bottom_buttons.rect = self.bottombar.rect
 
         center_x = left_w
         center_y = self.topbar_height
         center_w = max(1, window_width - left_w - right_w)
-        center_h = max(1, window_height - self.topbar_height - bottom_h)
+        center_h = max(1, window_height - self.topbar_height)
         self.map_rect = pygame.Rect(center_x, center_y, center_w, center_h)
 
-        # End turn on the bottom-right side of the map viewport
-        end_w = 140
-        end_h = 30
-        end_x = self.map_rect.right - end_w - 12
-        end_y = self.map_rect.bottom - end_h - 12
+        # End turn sits above the command dock while the map renders beneath it.
+        end_w = 196
+        end_h = 74
+        end_x = self.map_rect.right - end_w - 18
+        end_limit_y = self.bottombar.rect.y if show_bottom else self.map_rect.bottom
+        end_y = max(self.map_rect.y + 12, end_limit_y - end_h - 16)
         self._endturn_rect = pygame.Rect(end_x, end_y, end_w, end_h)
 
         # choose button near bottom-right of map in choosecountry (draw will override)
@@ -671,6 +862,8 @@ class InGameUI:
         researchdata=None,
         warprogressdata=None,
         selected_country_stats=None,
+        systemstatus=None,
+        notificationcount=0,
     ):
         self.gamephase = gamephase
         self.pendingcountry = pendingcountry
@@ -703,6 +896,9 @@ class InGameUI:
             self._warprogressdata = warprogressdata
         if selected_country_stats is not None:
             self._selected_country_stats = selected_country_stats
+        if systemstatus is not None:
+            self._systemstatus = dict(systemstatus)
+        self._notificationcount = max(0, int(notificationcount or 0))
 
         self.applylayout()
 
@@ -734,6 +930,39 @@ class InGameUI:
                 return None
             self.pausemenuopen = not self.pausemenuopen
             return self.actionpausemenu
+
+        if self.warprogressopen:
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self._warprogress_dragging = False
+                if self._warprogress_popup_rect.collidepoint(event.pos):
+                    return None
+            if event.type == pygame.MOUSEMOTION and self._warprogress_dragging:
+                target_x = int(event.pos[0] - self._warprogress_drag_offset[0])
+                target_y = int(event.pos[1] - self._warprogress_drag_offset[1])
+                popup = self._warprogress_popup_rect.copy()
+                popup.topleft = (target_x, target_y)
+                bounds = pygame.Rect(12, self.topbar_height + 8, self.window_size[0] - 24, self.window_size[1] - self.topbar_height - 20)
+                popup.clamp_ip(bounds)
+                self._warprogress_popup_pos = popup.topleft
+                return None
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self._warprogress_close_rect.collidepoint(event.pos):
+                    self.warprogressopen = False
+                    self._warprogress_dragging = False
+                    return None
+                for tab_index, tab_rect in enumerate(self._warprogress_tab_rects):
+                    if tab_rect.collidepoint(event.pos):
+                        self._warprogress_active_index = tab_index
+                        return None
+                if self._warprogress_header_rect.collidepoint(event.pos):
+                    self._warprogress_dragging = True
+                    self._warprogress_drag_offset = (
+                        event.pos[0] - self._warprogress_popup_rect.x,
+                        event.pos[1] - self._warprogress_popup_rect.y,
+                    )
+                    return None
+                if self._warprogress_popup_rect.collidepoint(event.pos):
+                    return None
 
         if self.pausemenuopen:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -828,6 +1057,15 @@ class InGameUI:
             if self._war_progress_rect.collidepoint(pos):
                 self.warprogressopen = not self.warprogressopen
                 return self.actionwarprogress
+        if self._selectedmapcountry and not self._countrymenutarget:
+            if self._declarewar_rect.collidepoint(pos):
+                if (
+                    self.playercountry
+                    and self._selectedmapcountry != self.playercountry
+                    and self._selectedmapcountry not in self._countriesatwarset
+                ):
+                    return self.actiondeclarewar
+                return None
         if selected_tab == "RECRUIT":
             if self._recruit_action_rect.collidepoint(pos):
                 if self.recruitenabled:
@@ -849,7 +1087,7 @@ class InGameUI:
             return None
        
     def ispointeroverui(self, mouseposition):
-        if self.warprogressopen:
+        if self.warprogressopen and self._warprogress_popup_rect.collidepoint(mouseposition):
             return True
        
         if self.focusview.pointerover(mouseposition):
@@ -877,9 +1115,11 @@ class InGameUI:
 
         if self.gamephase == "choosecountry":
             # minimal UI only during choosecountry
-            self.topbar.draw(surface)
-            title = self.title_font.render("OPERATIONAL COMMAND", True, (200, 170, 80))
-            surface.blit(title, (20, 15))
+            self._draw_topbar_background(surface)
+            title = self.title_font.render("EBEE COMMAND", True, _C_GOLD_BRIGHT)
+            subtitle = self.small_font.render("SELECT THEATER COMMAND", True, _C_TEXT_MUTED)
+            surface.blit(title, (20, 16))
+            surface.blit(subtitle, (20, 45))
 
             # clear non-map areas so the screen doesn't keep old UI pixels
             bg = (10, 10, 10)
@@ -898,134 +1138,25 @@ class InGameUI:
             self._choose_rect = pygame.Rect(bx, by, bw, bh)
 
             enabled = bool(self.pendingcountry)
-            color = (0, 200, 0) if enabled else (50, 50, 50)
-            pygame.draw.rect(surface, color, self._choose_rect)
-            pygame.draw.rect(surface, (25, 25, 25), self._choose_rect, 1)
-            label = self.font.render("choose country", True, (0, 0, 0) if enabled else (210, 210, 210))
+            self._draw_glass_panel(
+                surface,
+                self._choose_rect,
+                radius=6,
+                border=(_C_SUCCESS if enabled else (69, 75, 84)),
+                glow=enabled,
+            )
+            label = self.font_bold.render("CHOOSE COUNTRY", True, (_C_TEXT if enabled else _C_TEXT_MUTED))
             surface.blit(label, label.get_rect(center=self._choose_rect.center))
             if self.pendingcountry:
-                selected = self.font.render(f"Selected: {self.pendingcountry}", True, (230, 230, 230))
+                selected = self.font.render(f"Selected: {self.pendingcountry}", True, _C_TEXT)
                 surface.blit(selected, (self._choose_rect.x, self._choose_rect.y - 22))
 
             return
 
                 
-        if self.warprogressopen:
-            popup_w = min(560, max(360, surface.get_width() - 40))
-            popup_h = min(380, max(300, surface.get_height() - 60))
-            popup_rect = pygame.Rect(0, 0, popup_w, popup_h)
-            popup_rect.center = surface.get_rect().center
-
-            overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 120))
-            surface.blit(overlay, (0, 0))
-
-            pygame.draw.rect(surface, (28, 28, 28), popup_rect, border_radius=4)
-            pygame.draw.rect(surface, (25, 25, 25), popup_rect, 1, border_radius=4)
-
-            title = self.title_font.render("WAR PROGRESS", True, (230, 230, 230))
-            surface.blit(title, title.get_rect(center=(popup_rect.centerx, popup_rect.y + 30)))
-
-            data = self._warprogressdata or {}
-            aggressor = data.get("aggressor")
-            defender = data.get("defender") 
-            progress = data.get("progress")
-            defender_progress = data.get("defender_progress", 0)
-
-            content_x = popup_rect.x + 30
-            content_w = popup_rect.width - 60
-
-            if aggressor and defender and progress is not None:
-                progress_value = max(0.0, min(100.0, float(progress)))
-                defender_progress_value = max(0.0, min(100.0, float(defender_progress or 0)))
-
-                subtitle = f"{aggressor} vs {defender}"
-                self._draw_text_fit(surface, subtitle, (235, 235, 235), content_x, popup_rect.y + 60, content_w, self.title_font)
-
-                progress_line = f"{aggressor} holds {progress_value:.1f}% of {defender} victory points"
-                self._draw_text_fit(surface, progress_line, (215, 215, 215), content_x, popup_rect.y + 88, content_w)
-
-                bar_rect = pygame.Rect(content_x, popup_rect.y + 114, content_w, 20)
-                pygame.draw.rect(surface, (60, 60, 60), bar_rect)
-                fill_w = int(bar_rect.width * (progress_value / 100.0))
-                counter_w = int(bar_rect.width * (defender_progress_value / 100.0))
-                if fill_w > 0:
-                    pygame.draw.rect(surface, (0, 190, 95), pygame.Rect(bar_rect.x, bar_rect.y, fill_w, bar_rect.height))
-                if counter_w > 0:
-                    # draw defender counter-progress from the right edge.
-                    pygame.draw.rect(surface, (180, 60, 60), pygame.Rect(bar_rect.right - counter_w, bar_rect.y, counter_w, bar_rect.height))
-                pygame.draw.rect(surface, (25, 25, 25), bar_rect, 1)
-
-                col_gap = 24
-                col_w = (content_w - col_gap) // 2
-                left_x = content_x
-                right_x = content_x + col_w + col_gap
-                top_y = popup_rect.y + 152
-
-                def draw_war_column(x, y, role, country, manpower, casualties, controlled_vp, total_vp, captured_vp, occupied_provinces):
-                    self._draw_text_fit(surface, role, (200, 170, 80), x, y, col_w, self.title_font)
-                    self._draw_text_fit(surface, country, (235, 235, 235), x, y + 24, col_w)
-                    lines = [
-                        f"Manpower: {self._format_number(manpower)}",
-                        f"Casualties: {self._format_number(casualties)}",
-                        f"VP held: {self._format_decimal(controlled_vp)} / {self._format_decimal(total_vp)}",
-                        f"Enemy VP held: {self._format_decimal(captured_vp)}",
-                        f"Enemy provinces: {self._format_number(occupied_provinces)}",
-                    ]
-                    line_y = y + 50
-                    for line in lines:
-                        self._draw_text_fit(surface, line, (212, 212, 212), x, line_y, col_w)
-                        line_y += 22
-
-                draw_war_column(
-                    left_x,
-                    top_y,
-                    "Aggressor",
-                    str(aggressor),
-                    data.get("aggressor_manpower", 0),
-                    data.get("aggressor_casualties", 0),
-                    data.get("aggressor_controlled_vp", 0),
-                    data.get("aggressor_total_vp", 0),
-                    data.get("aggressor_captured_vp", 0),
-                    data.get("aggressor_occupied_enemy_provinces", 0),
-                )
-                draw_war_column(
-                    right_x,
-                    top_y,
-                    "Defender",
-                    str(defender),
-                    data.get("defender_manpower", 0),
-                    data.get("defender_casualties", 0),
-                    data.get("defender_controlled_vp", 0),
-                    data.get("defender_total_vp", 0),
-                    data.get("defender_captured_vp", 0),
-                    data.get("defender_occupied_enemy_provinces", 0),
-                )
-
-                status_parts = [f"Active wars: {self._format_number(data.get('active_war_count', 1))}"]
-                if data.get("start_turn"):
-                    status_parts.append(f"Since turn {self._format_number(data.get('start_turn'))}")
-                self._draw_text_fit(
-                    surface,
-                    " | ".join(status_parts),
-                    (170, 170, 170),
-                    content_x,
-                    popup_rect.bottom - 48,
-                    content_w,
-                )
-            else:
-                txt = self.font.render("No active war", True, (200, 200, 200))
-                surface.blit(txt, txt.get_rect(center=(popup_rect.centerx, popup_rect.centery)))
-
-            hint = self.font.render("Press ESC to close", True, (170, 170, 170))
-            surface.blit(hint, hint.get_rect(center=(popup_rect.centerx, popup_rect.bottom - 20)))
-
-            if self.pausemenuopen:
-                self._draw_pausemenu(surface)
-            return
-                
 
         # full UI chrome (play)
+        self._draw_map_edge_shadows(surface)
         if self.leftbar.rect.width:
             self.leftbar.draw(
                 surface,
@@ -1034,9 +1165,11 @@ class InGameUI:
                 font_bold=self.font_bold,
                 icons=self._topbar_icons,
                 selected=self.active_left_tab,
+                statusdata=self._systemstatus,
+                notification_count=self._notificationcount,
             )
-        self.bottombar.draw(surface)
-        self.bottom_buttons.draw(surface, self.font, mouse, font_bold=self.font_bold)
+        self._draw_bottombar_background(surface)
+        self.bottom_buttons.draw(surface, self.font, mouse, font_bold=self.font_bold, icons=self._topbar_icons)
         self._draw_topbar_background(surface)
 
         # end turn button (bottom-right of map)
@@ -1047,41 +1180,57 @@ class InGameUI:
             self._endturn_glow = max(0.0, self._endturn_glow - 0.08)
         glow = self._endturn_glow
         radius = 8
-        color = (60, 230, 60) if hovered else (0, 200, 0)
-        pygame.draw.rect(surface, color, self._endturn_rect, border_radius=radius)
         if glow > 0.01:
             ew, eh = self._endturn_rect.size
             ex, ey = self._endturn_rect.topleft
-            glow_surf = pygame.Surface((ew + 24, eh + 24), pygame.SRCALPHA)
+            glow_surf = pygame.Surface((ew + 28, eh + 28), pygame.SRCALPHA)
             for ring in range(5):
-                ring_alpha = int(glow * (40 - ring * 7))
+                ring_alpha = int(glow * (42 - ring * 7))
                 if ring_alpha <= 0:
                     continue
                 offset = ring * 2 + 2
-                pygame.draw.rect(glow_surf, (60, 255, 60, ring_alpha),
-                    (12 - offset, 12 - offset, ew + offset * 2, eh + offset * 2),
+                pygame.draw.rect(glow_surf, (*_C_SUCCESS, ring_alpha),
+                    (14 - offset, 14 - offset, ew + offset * 2, eh + offset * 2),
                     border_radius=radius + offset, width=2)
-            surface.blit(glow_surf, (ex - 12, ey - 12))
-        end_font = self.font_bold if hovered else self.font
-        end_label = end_font.render("END TURN", True, (0, 0, 0))
-        surface.blit(end_label, end_label.get_rect(center=self._endturn_rect.center))
+            surface.blit(glow_surf, (ex - 14, ey - 14))
+        self._draw_vertical_gradient_rect(
+            surface,
+            self._endturn_rect,
+            (20, 92, 56) if hovered else (17, 73, 46),
+            (7, 32, 25),
+            radius=radius,
+        )
+        pygame.draw.rect(surface, (58, 178, 116) if hovered else (45, 136, 91), self._endturn_rect, 1, border_radius=radius)
+        pygame.draw.line(surface, (136, 232, 181), (self._endturn_rect.x + 14, self._endturn_rect.y + 2), (self._endturn_rect.right - 14, self._endturn_rect.y + 2), 1)
+        end_font = self.font_bold
+        end_label = end_font.render("END TURN", True, _C_TEXT)
+        sub_label = self.small_font.render(f"Turn {int(self.currentturnnumber)}", True, (196, 226, 209))
+        surface.blit(end_label, end_label.get_rect(center=(self._endturn_rect.centerx - 10, self._endturn_rect.y + 28)))
+        surface.blit(sub_label, sub_label.get_rect(center=(self._endturn_rect.centerx - 10, self._endturn_rect.y + 55)))
+        arrow = self.title_font.render(">", True, (200, 244, 221))
+        surface.blit(arrow, arrow.get_rect(center=(self._endturn_rect.right - 26, self._endturn_rect.centery)))
 
         # top title + stats line (with mini flag)
-        base_title = "OPERATIONAL COMMAND"
-        info_x = 20
-        info_y = 15
-        title_surface = self.title_font.render(base_title, True, (200, 170, 80))
-        surface.blit(title_surface, (info_x, info_y))
+        base_title = "EBEE COMMAND"
+        info_x = 18
+        info_y = 12
+        emblem_center = (info_x + 26, info_y + 27)
+        pygame.draw.circle(surface, _C_GOLD, emblem_center, 24, 1)
+        pygame.draw.circle(surface, (88, 70, 34), emblem_center, 17, 1)
+        pygame.draw.line(surface, _C_GOLD, (emblem_center[0], emblem_center[1] - 22), (emblem_center[0], emblem_center[1] + 22), 1)
+        pygame.draw.line(surface, _C_GOLD, (emblem_center[0] - 22, emblem_center[1]), (emblem_center[0] + 22, emblem_center[1]), 1)
+        title_x = info_x + 64
+        title_surface = self.title_font.render(base_title, True, _C_GOLD_BRIGHT)
+        subtitle_surface = self.small_font.render("STRATEGIC COMMAND & CONTROL", True, _C_TEXT_MUTED)
+        surface.blit(title_surface, (title_x, info_y + 5))
+        surface.blit(subtitle_surface, (title_x, info_y + 34))
 
         flag_img = None
         if self.playercountry:
             key = str(self.playercountry).strip().lower().replace(" ", "_").replace("-", "_")
-            flag_img = pygame.transform.smoothscale(
-                self._flags.get(key),
-                (20, 14)
-            ) if self._flags.get(key) else None
-        stats_x = info_x + title_surface.get_width() + 18
-        stats_y = 11
+            flag_img = self._flags.get(key) if self._flags.get(key) else None
+        stats_x = max(396, title_x + title_surface.get_width() + 38)
+        stats_y = 12
 
         country_text = str(self.playercountry or "None")
         date_text = self._format_ingame_date()
@@ -1089,21 +1238,22 @@ class InGameUI:
         stats_x, _ = self._draw_country_chip(surface, stats_x, stats_y, country_text, flag_img, max_right)
 
         chip_data = (
-            ("gold", self._format_number(self.playergold), (177, 145, 70)),
-            ("turn", str(int(self.currentturnnumber)), (130, 138, 146)),
-            ("date", date_text, (177, 145, 70)),
-            ("population", self._format_compact_number(self.playerpopulation), (130, 138, 146)),
-            ("manpower", self._format_compact_number(self._active_manpower), (177, 145, 70)),
-            ("stability", f"{self.playerstability:.0f}%", (130, 138, 146)),
-            ("political_power", str(int(self.playerpp)), (177, 145, 70)),
-            ("action_points", str(int(self.playerap)), (130, 138, 146)),
+            ("gold", "Gold", self._format_number(self.playergold), (177, 145, 70)),
+            ("turn", "Turn", str(int(self.currentturnnumber)), (130, 138, 146)),
+            ("date", "Date", date_text, (177, 145, 70)),
+            ("population", "Population", self._format_compact_number(self.playerpopulation), (130, 138, 146)),
+            ("manpower", "Active MP", self._format_compact_number(self._active_manpower), (177, 145, 70)),
+            ("stability", "Stability", f"{self.playerstability:.0f}%", (177, 145, 70)),
+            ("political_power", "PP", str(int(self.playerpp)), (130, 138, 146)),
+            ("action_points", "AP", str(int(self.playerap)), (177, 145, 70)),
         )
-        for icon_key, value_text, accent in chip_data:
+        for icon_key, label_text, value_text, accent in chip_data:
             stats_x, did_draw = self._draw_resource_chip(
                 surface,
                 stats_x,
                 stats_y,
                 icon_key,
+                label_text,
                 value_text,
                 max_right,
                 accent=accent,
@@ -1160,8 +1310,12 @@ class InGameUI:
             else:
                 tooltip_lines = [str(self._hovertext)]
 
-            padding = 8
-            text_surfs = [self.font.render(line, True, (255, 255, 255)) for line in tooltip_lines]
+            padding = 10
+            text_surfs = []
+            for index, line in enumerate(tooltip_lines):
+                color = _C_GOLD_BRIGHT if index == 0 else (_C_TEXT if index <= 2 else _C_TEXT_MUTED)
+                font = self.font_bold if index == 0 else self.font
+                text_surfs.append(font.render(line, True, color))
             box_w = max(ts.get_width() for ts in text_surfs) + padding * 2
             box_h = sum(ts.get_height() for ts in text_surfs) + padding * 2
 
@@ -1172,8 +1326,7 @@ class InGameUI:
             y = max(0, min(surface.get_height() - box_h, y))
             rect = pygame.Rect(x, y, box_w, box_h)
 
-            pygame.draw.rect(surface, (20, 20, 20), rect)
-            pygame.draw.rect(surface, (255, 200, 0), rect, 2)
+            self._draw_glass_panel(surface, rect, radius=5, border=(126, 102, 58))
             ty = rect.y + padding
             for ts in text_surfs:
                 surface.blit(ts, (rect.x + padding, ty))
@@ -1202,12 +1355,12 @@ class InGameUI:
         content_rect = self.rightbar.rect.inflate(-24, -24)
         content_rect.topleft = (self.rightbar.rect.x + 12, self.rightbar.rect.y + 12)
 
-        # base panel — fill full rect first so padding isn't transparent under overlays
-        pygame.draw.rect(surface, (18, 18, 18), self.rightbar.rect, border_radius=2)
-        pygame.draw.rect(surface, (25, 25, 25), self.rightbar.rect, 1, border_radius=2)
-        pygame.draw.rect(surface, (18, 18, 18), content_rect, border_radius=2)
+        # base panel — premium command drawer
+        self._draw_glass_panel(surface, self.rightbar.rect, radius=0, border=(44, 58, 76))
+        pygame.draw.rect(surface, (10, 16, 25), content_rect, border_radius=6)
 
-        header = self.font.render(str(selected_tab or ""), True, (210, 210, 210))
+        panel_title = "COUNTRY" if (self._countrymenutarget or self._selectedmapcountry) else str(selected_tab or "")
+        header = self.font_bold.render(panel_title, True, _C_GOLD_BRIGHT)
         surface.blit(header, (content_rect.x, content_rect.y))
 
         y_cursor = content_rect.y + 24
@@ -1236,8 +1389,17 @@ class InGameUI:
             y_cursor += 130
 
         elif self.active_left_tab == "COMBAT" and not self._countrymenutarget:
-            surface.blit(self.font.render("War Operations", True, (240, 240, 240)), (content_rect.x, y_cursor))
-            self._war_progress_rect.topleft = (content_rect.x, y_cursor + 30)
+            surface.blit(self.font_bold.render("War Operations", True, _C_GOLD_BRIGHT), (content_rect.x, y_cursor))
+            self._draw_text_fit(
+                surface,
+                "Monitor active theaters, victory-point control, casualties, and pressure.",
+                _C_TEXT_MUTED,
+                content_rect.x,
+                y_cursor + 26,
+                content_rect.width,
+                self.font,
+            )
+            self._war_progress_rect.topleft = (content_rect.x, content_rect.bottom - self._war_progress_rect.height)
             self._draw_glow_btn(
                 surface, "warprogress", self._war_progress_rect,
                 True, "WAR PROGRESS", mouse=mouse,
@@ -1266,6 +1428,27 @@ class InGameUI:
             for line in lines:
                 surface.blit(self.font.render(line, True, (212, 212, 212)), (content_rect.x, y_cursor))
                 y_cursor += 20
+
+            alreadyatwar = self._selectedmapcountry in self._countriesatwarset
+            can_declare = (
+                bool(self.playercountry)
+                and self._selectedmapcountry != self.playercountry
+                and not alreadyatwar
+            )
+            status = "At war" if alreadyatwar else ("Player country" if self._selectedmapcountry == self.playercountry else "Peace")
+            status_surf = self.small_font.render(f"STATUS: {status.upper()}", True, _C_TEXT_MUTED)
+            surface.blit(status_surf, (content_rect.x, y_cursor + 8))
+
+            self._declarewar_rect.topleft = (content_rect.x, content_rect.bottom - self._declarewar_rect.height)
+            declare_label = "DECLARE WAR" if can_declare else ("ALREADY AT WAR" if alreadyatwar else "DECLARE WAR")
+            self._draw_glow_btn(
+                surface,
+                "declarewar_selected_country",
+                self._declarewar_rect,
+                can_declare,
+                declare_label,
+                mouse=mouse,
+            )
 
         
         elif selected_tab == "RECRUIT":
@@ -1325,13 +1508,257 @@ class InGameUI:
                 self._draw_glow_btn(surface, "merge", self._merge_rect, merge_enabled, "merge", mouse=mouse)
                 self._draw_glow_btn(surface, "frontline", self._frontline_rect, True, frontline_label, mouse=mouse)
 
-           
-            if self.pausemenuopen:
-                self._draw_pausemenu(surface)
-    
-        elif self.pausemenuopen:
+        if self.warprogressopen:
+            self._draw_war_progress_popup(surface, mouse)
+
+        if self.pausemenuopen:
             self._draw_pausemenu(surface)
 
+
+    def _draw_metric_chip(self, surface, rect, label, value, icon_key=None, accent=_C_GOLD):
+        self._draw_vertical_gradient_rect(surface, rect, (18, 27, 42), (9, 15, 24), radius=6)
+        pygame.draw.rect(surface, (49, 63, 82), rect, 1, border_radius=6)
+        pygame.draw.line(surface, accent, (rect.x + 8, rect.y + 9), (rect.x + 8, rect.bottom - 9), 2)
+        draw_x = rect.x + 18
+        icon = self._topbar_icons.get(icon_key) if icon_key else None
+        if icon is not None:
+            surface.blit(icon, (draw_x, rect.y + 16))
+            draw_x += icon.get_width() + 10
+        value_surface = self.font_bold.render(str(value), True, _C_TEXT)
+        label_surface = self.small_font.render(str(label), True, _C_TEXT_MUTED)
+        surface.blit(value_surface, (draw_x, rect.y + 10))
+        surface.blit(label_surface, (draw_x, rect.y + 32))
+
+    def _draw_occupation_bar(self, surface, rect, label, percent, count_text, fill_color):
+        percent = max(0.0, min(100.0, float(percent or 0.0)))
+        label_surface = self.font_bold.render(str(label), True, _C_TEXT)
+        value_surface = self.font_bold.render(f"{percent:.1f}%", True, _C_TEXT)
+        surface.blit(label_surface, (rect.x, rect.y))
+        surface.blit(value_surface, (rect.right - value_surface.get_width(), rect.y))
+
+        bar_rect = pygame.Rect(rect.x, rect.y + 28, rect.width, 24)
+        pygame.draw.rect(surface, (7, 12, 20), bar_rect, border_radius=5)
+        pygame.draw.rect(surface, (43, 56, 73), bar_rect, 1, border_radius=5)
+
+        fill_width = int(bar_rect.width * (percent / 100.0))
+        if fill_width > 0:
+            fill_rect = pygame.Rect(bar_rect.x, bar_rect.y, fill_width, bar_rect.height)
+            self._draw_vertical_gradient_rect(surface, fill_rect, fill_color, (max(0, fill_color[0] - 32), max(0, fill_color[1] - 32), max(0, fill_color[2] - 32)), radius=5)
+
+        risk_x = bar_rect.x + int(bar_rect.width * 0.8)
+        pygame.draw.line(surface, _C_DANGER, (risk_x, bar_rect.y - 4), (risk_x, bar_rect.bottom + 4), 2)
+        risk_label = self.small_font.render("80% capitulation risk", True, _C_DANGER)
+        surface.blit(risk_label, (bar_rect.right - risk_label.get_width(), bar_rect.bottom + 6))
+
+        count_surface = self.small_font.render(str(count_text), True, _C_TEXT_MUTED)
+        surface.blit(count_surface, (rect.x, bar_rect.bottom + 6))
+
+    def _draw_war_progress_popup(self, surface, mouse):
+        popup_w = min(900, max(640, self.map_rect.width - 72))
+        max_popup_h = max(520, surface.get_height() - self.topbar_height - 36)
+        popup_h = min(740, max_popup_h, max(620, self.map_rect.height - 64))
+        popup_rect = pygame.Rect(0, 0, popup_w, popup_h)
+        if self._warprogress_popup_pos is None:
+            popup_rect.center = self.map_rect.center
+        else:
+            popup_rect.topleft = self._warprogress_popup_pos
+        popup_rect.clamp_ip(surface.get_rect().inflate(-32, -32))
+        self._warprogress_popup_pos = popup_rect.topleft
+        self._warprogress_popup_rect = popup_rect
+
+        shadow = pygame.Surface((popup_rect.width + 28, popup_rect.height + 28), pygame.SRCALPHA)
+        pygame.draw.rect(shadow, (0, 0, 0, 150), shadow.get_rect(), border_radius=12)
+        surface.blit(shadow, (popup_rect.x - 14, popup_rect.y - 10))
+        self._draw_glass_panel(surface, popup_rect, radius=8, border=(72, 86, 108), glow=True)
+
+        header_h = 64
+        self._warprogress_header_rect = pygame.Rect(popup_rect.x, popup_rect.y, popup_rect.width, header_h)
+        pygame.draw.line(surface, (76, 64, 38), (popup_rect.x + 16, popup_rect.y + header_h), (popup_rect.right - 16, popup_rect.y + header_h), 1)
+        icon = self._topbar_icons.get("war_progress")
+        title_x = popup_rect.x + 24
+        if icon is not None:
+            surface.blit(icon, (title_x, popup_rect.y + 21))
+            title_x += icon.get_width() + 12
+        title = self.title_font.render("WAR PROGRESS", True, _C_GOLD_BRIGHT)
+        subtitle = self.small_font.render("OCCUPATION AND CAPITULATION RISK", True, _C_TEXT_MUTED)
+        surface.blit(title, (title_x, popup_rect.y + 14))
+        surface.blit(subtitle, (title_x, popup_rect.y + 40))
+
+        close_size = 34
+        self._warprogress_close_rect = pygame.Rect(popup_rect.right - close_size - 16, popup_rect.y + 15, close_size, close_size)
+        close_hovered = self._warprogress_close_rect.collidepoint(mouse)
+        close_top = (45, 55, 68) if close_hovered else (23, 32, 48)
+        self._draw_vertical_gradient_rect(surface, self._warprogress_close_rect, close_top, (10, 16, 25), radius=6)
+        pygame.draw.rect(surface, (_C_DANGER if close_hovered else (62, 76, 95)), self._warprogress_close_rect, 1, border_radius=6)
+        close_icon = self._topbar_icons.get("close")
+        if close_icon is not None:
+            surface.blit(close_icon, close_icon.get_rect(center=self._warprogress_close_rect.center))
+        else:
+            close_label = self.font_bold.render("X", True, _C_TEXT)
+            surface.blit(close_label, close_label.get_rect(center=self._warprogress_close_rect.center))
+
+        data = self._warprogressdata or {}
+        wars = [war for war in data.get("wars", []) if isinstance(war, dict)]
+        if not wars and data.get("aggressor") and data.get("defender"):
+            wars = [data]
+        if wars:
+            self._warprogress_active_index = max(0, min(self._warprogress_active_index, len(wars) - 1))
+            data = wars[self._warprogress_active_index]
+        else:
+            self._warprogress_active_index = 0
+        aggressor = data.get("aggressor")
+        defender = data.get("defender")
+        content_x = popup_rect.x + 28
+        content_y = popup_rect.y + header_h + 18
+        content_w = popup_rect.width - 56
+
+        tab_label = self.small_font.render("ACTIVE WARS", True, _C_TEXT_MUTED)
+        surface.blit(tab_label, (content_x, content_y))
+        self._warprogress_tab_rects = []
+        tab_y = content_y + 18
+        if wars:
+            gap = 8
+            tab_w = max(118, min(178, (content_w - gap * max(0, len(wars) - 1)) // max(1, len(wars))))
+            for index, war in enumerate(wars):
+                tab_rect = pygame.Rect(content_x + index * (tab_w + gap), tab_y, tab_w, 38)
+                if tab_rect.right > content_x + content_w:
+                    break
+                self._warprogress_tab_rects.append(tab_rect)
+                selected = index == self._warprogress_active_index
+                hovered = tab_rect.collidepoint(mouse)
+                top = (43, 36, 24) if selected else ((28, 39, 59) if hovered else (14, 22, 33))
+                bottom = (25, 22, 18) if selected else (9, 15, 24)
+                self._draw_vertical_gradient_rect(surface, tab_rect, top, bottom, radius=6)
+                pygame.draw.rect(surface, (_C_GOLD if selected else (46, 59, 78)), tab_rect, 1, border_radius=6)
+                label = f"{war.get('aggressor', '?')} - {war.get('defender', '?')}"
+                self._draw_text_fit(surface, label, (_C_GOLD_BRIGHT if selected else _C_TEXT), tab_rect.x + 10, tab_rect.y + 10, tab_rect.width - 20, self.font_bold if selected else self.font)
+
+        content_y = tab_y + 52
+        if not aggressor or not defender:
+            empty = self.font_bold.render("No active war", True, _C_TEXT)
+            surface.blit(empty, empty.get_rect(center=(popup_rect.centerx, content_y + 120)))
+            return
+
+        matchup = self.font_bold.render(f"{aggressor} vs {defender}", True, _C_TEXT)
+        surface.blit(matchup, (content_x, content_y))
+        since = data.get("start_turn")
+        meta = f"Active wars: {self._format_number(data.get('active_war_count', 1))}"
+        if since:
+            meta += f"  |  Since turn {self._format_number(since)}"
+        self._draw_text_fit(surface, meta, _C_TEXT_MUTED, content_x, content_y + 24, content_w)
+
+        bar_y = content_y + 56
+        defender_percent = data.get("defender_occupied_percent", data.get("progress", 0.0))
+        aggressor_percent = data.get("aggressor_occupied_percent", data.get("defender_progress", 0.0))
+        defender_count = (
+            f"{self._format_number(data.get('defender_foreign_occupied_provinces', data.get('aggressor_occupied_enemy_provinces', 0)))}"
+            f" / {self._format_number(data.get('defender_total_provinces', 0))} provinces under foreign control"
+        )
+        aggressor_count = (
+            f"{self._format_number(data.get('aggressor_foreign_occupied_provinces', data.get('defender_occupied_enemy_provinces', 0)))}"
+            f" / {self._format_number(data.get('aggressor_total_provinces', 0))} provinces under foreign control"
+        )
+        self._draw_occupation_bar(
+            surface,
+            pygame.Rect(content_x, bar_y, content_w, 72),
+            f"{defender} occupied by {aggressor}",
+            defender_percent,
+            defender_count,
+            (180, 78, 78),
+        )
+        self._draw_occupation_bar(
+            surface,
+            pygame.Rect(content_x, bar_y + 92, content_w, 72),
+            f"{aggressor} occupied by {defender}",
+            aggressor_percent,
+            aggressor_count,
+            (74, 143, 231),
+        )
+
+        def draw_breakdown(panel_rect, title, breakdown):
+            self._draw_vertical_gradient_rect(surface, panel_rect, (15, 23, 36), (8, 13, 22), radius=6)
+            pygame.draw.rect(surface, (43, 56, 73), panel_rect, 1, border_radius=6)
+            self._draw_text_fit(surface, title, _C_GOLD_BRIGHT, panel_rect.x + 12, panel_rect.y + 10, panel_rect.width - 24, self.font_bold)
+            line_y = panel_rect.y + 36
+            if not breakdown:
+                self._draw_text_fit(surface, "No foreign occupation tracked.", _C_TEXT_MUTED, panel_rect.x + 12, line_y, panel_rect.width - 24)
+                return
+            for item in breakdown[:3]:
+                line = (
+                    f"{item.get('controller', 'Unknown')}: "
+                    f"{self._format_number(item.get('provinces', 0))} provinces "
+                    f"({float(item.get('province_percent', 0.0)):.1f}%)"
+                )
+                self._draw_text_fit(surface, line, _C_TEXT, panel_rect.x + 12, line_y, panel_rect.width - 24)
+                line_y += 21
+
+        breakdown_y = bar_y + 184
+        col_gap = 12
+        col_w = (content_w - col_gap) // 2
+        draw_breakdown(
+            pygame.Rect(content_x, breakdown_y, col_w, 112),
+            f"{defender} territory controllers",
+            data.get("defender_occupation_breakdown", []),
+        )
+        draw_breakdown(
+            pygame.Rect(content_x + col_w + col_gap, breakdown_y, col_w, 112),
+            f"{aggressor} territory controllers",
+            data.get("aggressor_occupation_breakdown", []),
+        )
+
+        chip_gap = 10
+        chip_w = (content_w - chip_gap * 2) // 3
+        chip_y = popup_rect.bottom - 76
+        transfer_y = breakdown_y + 126
+        transfer_h = max(56, min(82, chip_y - transfer_y - 12))
+        transfer_rect = pygame.Rect(content_x, transfer_y, content_w, transfer_h)
+        self._draw_vertical_gradient_rect(surface, transfer_rect, (13, 21, 34), (7, 12, 20), radius=6)
+        pygame.draw.rect(surface, (43, 56, 73), transfer_rect, 1, border_radius=6)
+        self._draw_text_fit(surface, "Occupation Transfers", _C_GOLD_BRIGHT, transfer_rect.x + 12, transfer_rect.y + 9, transfer_rect.width - 24, self.font_bold)
+        transfer_lines = data.get("occupation_transfers", [])
+        line_y = transfer_rect.y + 34
+        if not transfer_lines:
+            self._draw_text_fit(surface, "No third-party occupation handoffs tracked yet.", _C_TEXT_MUTED, transfer_rect.x + 12, line_y, transfer_rect.width - 24)
+        else:
+            for transfer in transfer_lines[:2]:
+                if transfer.get("from_occupation"):
+                    line = (
+                        f"{transfer.get('controller', 'Unknown')} seized {transfer.get('owner', 'Unknown')} "
+                        f"{transfer.get('provinceid', 'province')} from {transfer.get('previous_controller', 'Unknown')}'s occupation"
+                    )
+                else:
+                    line = (
+                        f"{transfer.get('controller', 'Unknown')} occupied {transfer.get('owner', 'Unknown')} "
+                        f"{transfer.get('provinceid', 'province')}"
+                    )
+                self._draw_text_fit(surface, line, _C_TEXT, transfer_rect.x + 12, line_y, transfer_rect.width - 24)
+                line_y += 20
+
+        self._draw_metric_chip(
+            surface,
+            pygame.Rect(content_x, chip_y, chip_w, 50),
+            f"{aggressor} losses",
+            self._format_number(data.get("aggressor_casualties", 0)),
+            icon_key="manpower",
+            accent=_C_DANGER,
+        )
+        self._draw_metric_chip(
+            surface,
+            pygame.Rect(content_x + chip_w + chip_gap, chip_y, chip_w, 50),
+            f"{defender} losses",
+            self._format_number(data.get("defender_casualties", 0)),
+            icon_key="manpower",
+            accent=_C_DANGER,
+        )
+        total_casualties = int(data.get("total_casualties", 0) or 0)
+        self._draw_metric_chip(
+            surface,
+            pygame.Rect(content_x + (chip_w + chip_gap) * 2, chip_y, chip_w, 50),
+            "Total casualties",
+            self._format_number(total_casualties),
+            icon_key="combat",
+            accent=_C_DANGER,
+        )
 
     def _draw_glow_btn(self, surface, key, rect, enabled, label, primary=False, mouse=None):
         if mouse is None:
@@ -1346,35 +1773,41 @@ class InGameUI:
 
         radius = 8
         if primary:
-            color = (60, 230, 60) if hovered else ((0, 200, 0) if enabled else (70, 70, 70))
+            top = (26, 93, 60) if hovered else ((20, 74, 50) if enabled else (48, 53, 60))
+            bottom = (9, 38, 29) if enabled else (35, 38, 43)
+            border = (72, 183, 123) if enabled else (69, 75, 84)
         else:
-            color = (80, 160, 240) if hovered else ((56, 116, 198) if enabled else (70, 70, 70))
+            top = (31, 48, 74) if hovered else ((22, 34, 53) if enabled else (48, 53, 60))
+            bottom = (11, 17, 27) if enabled else (35, 38, 43)
+            border = _C_GOLD if hovered and enabled else ((69, 84, 104) if enabled else (69, 75, 84))
 
-        pygame.draw.rect(surface, color, rect, border_radius=radius)
+        self._draw_vertical_gradient_rect(surface, rect, top, bottom, radius=radius)
+        pygame.draw.rect(surface, border, rect, 1, border_radius=radius)
 
         if glow > 0.01 and enabled:
             w, h = rect.size
             glow_surf = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
             for ring in range(5):
-                ring_alpha = int(glow * (40 - ring * 7))
+                ring_alpha = int(glow * (28 - ring * 5))
                 if ring_alpha <= 0:
                     continue
                 offset = ring * 2 + 2
                 gw = w + offset * 2
                 gh = h + offset * 2
-                pygame.draw.rect(glow_surf, (60, 255, 60, ring_alpha),
+                glow_color = _C_SUCCESS if primary else _C_GOLD
+                pygame.draw.rect(glow_surf, (*glow_color, ring_alpha),
                     (12 - offset, 12 - offset, gw, gh),
                     border_radius=radius + offset, width=2)
             surface.blit(glow_surf, (rect.x - 12, rect.y - 12))
 
         if hovered:
-            text_color = (0, 0, 0)
+            text_color = _C_TEXT
             fnt = self.font_bold
         elif primary and enabled:
-            text_color = (0, 0, 0)
+            text_color = _C_TEXT
             fnt = self.font
         else:
-            text_color = (240, 240, 240) if enabled else (170, 170, 170)
+            text_color = _C_TEXT if enabled else _C_TEXT_MUTED
             fnt = self.font
         txt = fnt.render(label, True, text_color)
         surface.blit(txt, txt.get_rect(center=rect.center))

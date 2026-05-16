@@ -86,7 +86,9 @@ def gui_gettroopbadgerect(centerposition, troopcount, fontobject):
     if cachedsize is None:
         labelsurface = fontobject.render(str(troopcount), True, (255, 255, 255))
         labelrectangle = labelsurface.get_rect()
-        labelrectangle.inflate_ip(10, 6)
+        labelrectangle.inflate_ip(34, 12)
+        labelrectangle.width = max(54, labelrectangle.width)
+        labelrectangle.height = max(28, labelrectangle.height)
         cachedsize = labelrectangle.size
         troopbadgelayoutcache[layoutkey] = cachedsize
     labelrectangle = pygame.Rect(0, 0, cachedsize[0], cachedsize[1])
@@ -108,10 +110,11 @@ def gui_gettroopbadgevisualrect(centerposition, troopcount, fontobject, flags=No
     flagimage = flags.get(flagkey) if flags and flagkey else None
     padding = 6
     spacing = 4
-    width = labelsurface.get_width() + padding * 2
+    width = labelsurface.get_width() + padding * 2 + 8
     if flagimage:
         width += flagimage.get_width() + spacing
-    height = max(labelsurface.get_height(), flagimage.get_height() if flagimage else 0) + padding * 2
+    width = max(58, width)
+    height = max(28, max(labelsurface.get_height(), flagimage.get_height() if flagimage else 0) + padding * 2 + 2)
     labelrectangle = pygame.Rect(0, 0, width, height)
     labelrectangle.center = (int(centerposition[0]), int(centerposition[1]))
     return labelrectangle
@@ -1116,23 +1119,18 @@ def gui_drawtroopcountbadge(
     bordercolor=(165, 165, 165),
     rows=None,
 ):
-    # step 1: stop if center position is missing
     if not centerposition:
         return
 
     x, y = centerposition
-
-    # step 2: render readable text color against the badge background
-    if backgroundcolor in [(214, 194, 64), (214, 122, 36)]:
-        text_color = (0, 0, 0)
-    else:
-        r, g, b = backgroundcolor
-        brightness = (r * 0.299 + g * 0.587 + b * 0.114)
-        text_color = (0, 0, 0) if brightness > 186 else (255, 255, 255)
-
-    padding = 6
-    spacing = 4
-    rowspacing = 2
+    text_color = (234, 238, 242)
+    muted_text_color = (185, 192, 201)
+    panel_color = (10, 14, 20)
+    inner_color = (18, 25, 36)
+    accent_color = bordercolor or (212, 169, 77)
+    padding = 7
+    spacing = 6
+    rowspacing = 3
 
     if rows:
         rowvisuals = []
@@ -1154,15 +1152,19 @@ def gui_drawtroopcountbadge(
             contentwidth = max(contentwidth, rowwidth)
             rowheights.append(rowheight)
 
-        width = contentwidth + padding * 2
+        width = max(58, contentwidth + padding * 2 + 6)
         height = sum(rowheights) + rowspacing * max(0, len(rowheights) - 1) + padding * 2
         rect = pygame.Rect(x - width // 2, y - height // 2, width, height)
-        pygame.draw.rect(screen, backgroundcolor, rect, border_radius=4)
-        pygame.draw.rect(screen, bordercolor, rect, 1, border_radius=4)
+        shadow = pygame.Surface((rect.width + 8, rect.height + 8), pygame.SRCALPHA)
+        pygame.draw.rect(shadow, (0, 0, 0, 120), shadow.get_rect(), border_radius=6)
+        screen.blit(shadow, (rect.x - 4, rect.y - 2))
+        pygame.draw.rect(screen, panel_color, rect, border_radius=5)
+        pygame.draw.rect(screen, accent_color, rect, 1, border_radius=5)
+        pygame.draw.rect(screen, accent_color, pygame.Rect(rect.x, rect.y, 4, rect.height), border_radius=2)
 
         draw_y = rect.y + padding
         for flag_img, text_surf, rowwidth, rowheight in rowvisuals:
-            draw_x = rect.x + padding
+            draw_x = rect.x + padding + 4
             center_y = draw_y + rowheight // 2
             if flag_img:
                 screen.blit(flag_img, (draw_x, center_y - flag_img.get_height() // 2))
@@ -1173,21 +1175,17 @@ def gui_drawtroopcountbadge(
 
     country_key = gui_getcountryflagkey(country_name)
     text_surf = fontobject.render(str(troopcount), True, text_color)
-    
-    # step 3: get matching mini flag if it exists
     flag_img = flags.get(country_key) if flags and country_key else None
 
-    # step 4: compute badge size from text and optional flag
     content_width = text_surf.get_width()
-
     if flag_img:
         content_width += flag_img.get_width() + spacing
 
-    width = content_width + padding * 2
+    width = max(58, content_width + padding * 2 + 8)
     height = max(
         text_surf.get_height(),
         flag_img.get_height() if flag_img else 0
-    ) + padding * 2
+    ) + padding * 2 + 2
 
     rect = pygame.Rect(
         x - width // 2,
@@ -1196,22 +1194,23 @@ def gui_drawtroopcountbadge(
         height
     )
 
-    # step 5: draw the badge box
-    pygame.draw.rect(screen, backgroundcolor, rect, border_radius=4)
-    pygame.draw.rect(screen, bordercolor, rect, 1, border_radius=4)
+    shadow = pygame.Surface((rect.width + 8, rect.height + 8), pygame.SRCALPHA)
+    pygame.draw.rect(shadow, (0, 0, 0, 135), shadow.get_rect(), border_radius=7)
+    screen.blit(shadow, (rect.x - 4, rect.y - 2))
+    pygame.draw.rect(screen, panel_color, rect, border_radius=5)
+    inner_rect = rect.inflate(-4, -4)
+    pygame.draw.rect(screen, inner_color, inner_rect, border_radius=4)
+    pygame.draw.rect(screen, accent_color, rect, 1, border_radius=5)
+    pygame.draw.rect(screen, accent_color, pygame.Rect(rect.x, rect.y, 4, rect.height), border_radius=2)
 
-    draw_x = rect.x + padding
-
-    # step 6: find vertical center for alignment
+    draw_x = rect.x + padding + 4
     center_y = rect.y + rect.height // 2
 
-    # step 7: draw flag on the left
     if flag_img:
         flag_y = center_y - flag_img.get_height() // 2
         screen.blit(flag_img, (draw_x, flag_y))
         draw_x += flag_img.get_width() + spacing
 
-    # step 8: draw troop number on the right
     text_y = center_y - text_surf.get_height() // 2
     screen.blit(text_surf, (draw_x, text_y))
 
@@ -1283,11 +1282,13 @@ def gui_getcountrylabelsurface(labelcache, fontobject, textvalue, fontsize):
         baselabelsurface = gui_buildoutlinedtext(
             fontentry,
             textvalue,
+            textcolor=(214, 218, 224),
+            outlinecolor=(8, 11, 17),
             outlinewidth=outlinewidth,
         )
         baselabelcache[basekey] = baselabelsurface
 
-    baselabelsurface.set_alpha(128)
+    baselabelsurface.set_alpha(178)
     return baselabelsurface
 
 
@@ -1547,8 +1548,9 @@ def gui_drawcountryborders(
     if not bordersegmentlist or zoomvalue <= 0:
         return
 
-    borderwidth = max(1, min(4, int(zoomvalue * 1.2)))
-    bordercolor = (0, 0, 0)
+    borderwidth = max(2, min(5, int(zoomvalue * 1.3)))
+    shadowcolor = (4, 8, 14)
+    bordercolor = (126, 102, 58)
     minlengthsquared = 1.2 * 1.2
 
 
@@ -1600,7 +1602,8 @@ def gui_drawcountryborders(
             if dx * dx + dy * dy < minlengthsquared:
                 continue
 
-            pygame.draw.line(screen, bordercolor, segmentstart, segmentend, borderwidth)
+            pygame.draw.line(screen, shadowcolor, segmentstart, segmentend, borderwidth + 2)
+            pygame.draw.line(screen, bordercolor, segmentstart, segmentend, max(1, borderwidth - 1))
 
 
 
