@@ -202,27 +202,35 @@ class InGameUI:
 
     def _load_flags(self):
         flags = {}
-        flag_path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "flags"))
+        flag_path = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "flags")
+        )
+
         if not os.path.isdir(flag_path):
             return flags
 
         for filename in os.listdir(flag_path):
             if not filename.lower().endswith(".png"):
                 continue
-            filepath = os.path.join(flag_path, filename)
-            if not os.path.isfile(filepath):
-                continue
 
-            country_key = os.path.splitext(filename)[0].strip().lower().replace(" ", "_").replace("-", "_")
-            if not country_key:
-                continue
+            filepath = os.path.join(flag_path, filename)
+
+            country_key = (
+                os.path.splitext(filename)[0]
+                .strip()
+                .lower()
+                .replace(" ", "_")
+                .replace("-", "_")
+            )
 
             try:
                 img = pygame.image.load(filepath).convert_alpha()
+
+                # Store ORIGINAL high-resolution image
+                flags[country_key] = img
+
             except pygame.error:
                 continue
-
-            flags[country_key] = pygame.transform.scale(img, (20, 14))
 
         return flags
 
@@ -349,7 +357,7 @@ class InGameUI:
             self._selectedtroopentries = []
         self.applylayout()
 
-    def _get_big_flag(self, country_name, size=(200, 150)):
+    def _get_big_flag(self, country_name, size=(240, 144)):
         if not country_name:
             return None
         key = str(country_name).strip().lower().replace(" ", "_").replace("-", "_")
@@ -719,7 +727,10 @@ class InGameUI:
         flag_img = None
         if self.playercountry:
             key = str(self.playercountry).strip().lower().replace(" ", "_").replace("-", "_")
-            flag_img = self._flags.get(key)
+            flag_img = pygame.transform.smoothscale(
+                self._flags.get(key),
+                (20, 14)
+            ) if self._flags.get(key) else None
         stats_x = info_x + title_surface.get_width() + 18
         stats_y = info_y + 2
         if flag_img:
@@ -880,7 +891,7 @@ class InGameUI:
             y_cursor += 80
 
         elif self._selectedmapcountry and not self._countrymenutarget:
-            big_flag = self._get_big_flag(self._selectedmapcountry, size=(200, 150))
+            big_flag = self._get_big_flag(self._selectedmapcountry, size=(240, 144))
             y_cursor = content_rect.y + 12
             if big_flag:
                 flag_x = content_rect.x + (content_rect.width - big_flag.get_width()) // 2
@@ -905,7 +916,7 @@ class InGameUI:
                 y_cursor += 20
 
         elif self._selectedmapcountry and not self._countrymenutarget:
-            big_flag = self._get_big_flag(self._selectedmapcountry, size=(200, 150))
+            big_flag = self._get_big_flag(self._selectedmapcountry, size=(240, 144))
             y_cursor = content_rect.y + 12
             if big_flag:
                 flag_x = content_rect.x + (content_rect.width - big_flag.get_width()) // 2
