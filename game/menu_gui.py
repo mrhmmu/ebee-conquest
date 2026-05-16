@@ -5,8 +5,8 @@ import os
 from engine.runtime import main
 from game.scripts import ScriptMenuController
 
+pygame.mixer.pre_init(44100, -16, 2, 1024)
 pygame.init()
-pygame.mixer.init()
 
 button_click_sound = pygame.mixer.Sound("game/sounds/click.wav")
 button_click_sound.set_volume(0.4)
