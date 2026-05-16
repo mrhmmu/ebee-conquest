@@ -23,7 +23,8 @@ def focustreefromdata(data: Mapping):
     focuses = [Focus.fromdata(focusdata) for focusdata in data.get("focuses", ())]
     treeid = data.get("id") or slugify(data.get("country")) or "focus_tree"
     country = data.get("country")
-    name = data.get("name") or (f"{country} Focus Tree" if country else str(treeid))
+    name = data.get("name") or (f"{country} National Policy" if country else str(treeid))
+    name = str(name).replace("Focus Tree", "National Policy")
     return FocusTree(treeid=treeid, country=country, name=name, focuses=focuses)
 
 

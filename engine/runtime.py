@@ -890,7 +890,7 @@ def main(eventbus=None, is_fullscreen=False):
     
     statetocountrylookup, countrytocolorlookup = loadcountrydata(countrydatafilepath)
     allowedstateidset = set(statetocountrylookup.keys())
-    state_data_lookup = esomodule.buildstatedatalookup(stateshapelist)
+    state_data_lookup = esomodule.buildstatedatalookup(countries_raw)
     logstartupdiagnostics(
         startupbegintimestamp,
         "countries loaded",

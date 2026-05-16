@@ -1,5 +1,6 @@
 import ctypes
 import os
+from datetime import date, timedelta
 
 import pygame
 
@@ -31,9 +32,25 @@ class LeftBar:
         self.items = list(items)
         self._hover_glow = {}
 
-    def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos, font_bold=None):
-        pygame.draw.rect(surface, (50, 50, 50), self.rect)
-        pygame.draw.rect(surface, (25, 25, 25), self.rect, 1)
+    @staticmethod
+    def _fit_text(font, text, max_width):
+        text = str(text)
+        if font.size(text)[0] <= max_width:
+            return text
+        suffix = "..."
+        available_width = max(0, max_width - font.size(suffix)[0])
+        fitted = ""
+        for character in text:
+            candidate = fitted + character
+            if font.size(candidate)[0] > available_width:
+                break
+            fitted = candidate
+        return fitted.rstrip() + suffix if fitted else suffix
+
+    def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos, font_bold=None, icons=None, selected=None):
+        icons = icons or {}
+        pygame.draw.rect(surface, (34, 37, 42), self.rect)
+        pygame.draw.rect(surface, (20, 22, 25), self.rect, 1)
 
         self.item_rects = {}
         radius = 8
@@ -52,41 +69,69 @@ class LeftBar:
             hovered = rect.collidepoint(mouse_pos)
             glow = self._hover_glow.get(item_key, 0.0)
             if hovered:
-                glow = min(1.0, glow + 0.12)
+                glow = min(1.0, glow + 0.16)
             else:
-                glow = max(0.0, glow - 0.08)
+                glow = max(0.0, glow - 0.10)
             self._hover_glow[item_key] = glow
 
+            is_selected = item_key == selected
             if "CLEAR ALL" in item:
-                color = (0, 120, 0) if hovered else (0, 220, 0)
+                color = (52, 57, 50) if hovered else (40, 45, 40)
+            elif is_selected:
+                color = (47, 43, 34) if not hovered else (56, 50, 38)
             else:
                 if hovered:
-                    color = (60, 230, 60)
+                    color = (43, 48, 54)
                 else:
-                    color = (30, 30, 30)
+                    color = (25, 29, 33)
 
             pygame.draw.rect(surface, color, rect, border_radius=radius)
+            if "CLEAR ALL" in item:
+                bordercolor = (96, 112, 92) if hovered else (67, 78, 66)
+            elif is_selected:
+                bordercolor = (168, 139, 70)
+            elif hovered:
+                bordercolor = (86, 96, 106)
+            else:
+                bordercolor = (57, 63, 70)
+            pygame.draw.rect(surface, bordercolor, rect, 1, border_radius=radius)
 
             if glow > 0.01:
-                glow_surf = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
-                for ring in range(5):
-                    ring_alpha = int(glow * (40 - ring * 7))
-                    if ring_alpha <= 0:
+                glowcolor = (168, 139, 70) if (is_selected or "CLEAR ALL" in item) else (116, 126, 136)
+                glow_surf = pygame.Surface((w + 18, h + 18), pygame.SRCALPHA)
+                for ring in range(4):
+                    alpha = int(glow * (28 - ring * 6))
+                    if alpha <= 0:
                         continue
                     offset = ring * 2 + 2
-                    gw = w + offset * 2
-                    gh = h + offset * 2
-                    pygame.draw.rect(glow_surf, (60, 255, 60, ring_alpha),
-                        (12 - offset, 12 - offset, gw, gh),
-                        border_radius=radius + offset, width=2)
-                surface.blit(glow_surf, (x - 12, y - 12))
+                    pygame.draw.rect(
+                        glow_surf,
+                        (*glowcolor, alpha),
+                        (9 - offset, 9 - offset, w + offset * 2, h + offset * 2),
+                        border_radius=radius + offset,
+                        width=2,
+                    )
+                surface.blit(glow_surf, (x - 9, y - 9))
 
-            text_color = (0, 0, 0) if hovered else (200, 200, 200)
+            icon = icons.get(item_key)
+            icon_x = x + 12
+            text_x = x + 42
+            if icon is not None:
+                icon_rect = icon.get_rect()
+                icon_rect.topleft = (icon_x, y + (h - icon_rect.height) // 2)
+                surface.blit(icon, icon_rect)
+            else:
+                text_x = x + 14
+
+            text_color = (224, 228, 231) if hovered else (202, 207, 211)
             if "CLEAR ALL" in item:
-                text_color = (0, 0, 0)
-            active_font = font_bold if (hovered and font_bold) else font
-            text = active_font.render(item, True, text_color)
-            surface.blit(text, (x + 10, y + 10))
+                text_color = (224, 228, 216)
+            if is_selected:
+                text_color = (239, 224, 185)
+            active_font = font_bold if (is_selected and font_bold) else font
+            fitted_text = self._fit_text(active_font, item, rect.right - text_x - 10)
+            text = active_font.render(fitted_text, True, text_color)
+            surface.blit(text, (text_x, y + (h - text.get_height()) // 2))
 
 
 class BottomButtons:
@@ -132,29 +177,31 @@ class BottomButtons:
             self._hover_glow[item] = glow
 
             if item == self.selected:
-                color = (0, 220, 0) if not hovered else (60, 230, 60)
+                color = (54, 46, 32) if not hovered else (64, 54, 37)
             else:
-                color = (60, 230, 60) if hovered else (30, 30, 30)
+                color = (45, 50, 56) if hovered else (24, 27, 31)
 
             pygame.draw.rect(surface, color, rect, border_radius=radius)
+            bordercolor = (177, 145, 70) if item == self.selected else ((82, 91, 101) if hovered else (58, 63, 70))
+            pygame.draw.rect(surface, bordercolor, rect, 1, border_radius=radius)
 
             if glow > 0.01:
                 glow_surf = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
                 for ring in range(5):
-                    ring_alpha = int(glow * (40 - ring * 7))
+                    ring_alpha = int(glow * (18 - ring * 3))
                     if ring_alpha <= 0:
                         continue
                     offset = ring * 2 + 2
                     gw = w + offset * 2
                     gh = h + offset * 2
-                    pygame.draw.rect(glow_surf, (60, 255, 60, ring_alpha),
+                    pygame.draw.rect(glow_surf, (190, 160, 86, ring_alpha),
                         (12 - offset, 12 - offset, gw, gh),
                         border_radius=radius + offset, width=2)
                 surface.blit(glow_surf, (x - 12, y - 12))
 
-            text_color = (0, 0, 0) if hovered else (200, 200, 200)
+            text_color = (226, 230, 234) if hovered else (200, 205, 210)
             if item == self.selected and not hovered:
-                text_color = (0, 0, 0)
+                text_color = (239, 224, 185)
             active_font = font_bold if (hovered and font_bold) else font
             text = active_font.render(item, True, text_color)
             text_rect = text.get_rect(center=rect.center)
@@ -184,7 +231,7 @@ class InGameUI:
         self.font = pygame.font.SysFont("Verdana", 14)
         self.font_bold = pygame.font.SysFont("Verdana", 14, bold=True)
 
-        self.leftbar_width = 180
+        self.leftbar_width = 232
         self.topbar_height = 50
         # widened so troop/country panels fit "seamlessly" in the right tab
         self.rightbar_width = 356
@@ -221,12 +268,15 @@ class InGameUI:
         self.warprogressopen = False
         self._warprogressdata = {}
         self.actionwarprogress = "warprogress"
+        self._startdate = date(2020, 1, 1)
+        self._daysperturn = 5
 
         self._flags = self._load_flags()
         self._badge_flags = {
             key: pygame.transform.scale(img, (20, 14))
             for key, img in self._flags.items()
         }
+        self._topbar_icons = self._load_topbar_icons()
 
         self._choose_rect = pygame.Rect(0, 0, 160, 34)
         self._endturn_rect = pygame.Rect(0, 0, 10, 10)  # placed near map bottom-right
@@ -253,7 +303,7 @@ class InGameUI:
                 "LOGISTICS",
                 "COMBAT",
                 "INTEL",
-                "FOCUS TREE"
+                "NATIONAL POLICY"
             ]
         )
         self.bottom_buttons.set_items(
@@ -313,6 +363,40 @@ class InGameUI:
 
         return flags
 
+    def _load_topbar_icons(self):
+        icons = {}
+        icon_path = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "images", "ui_icons")
+        )
+        icon_files = {
+            "turn": "turn.svg",
+            "date": "date.svg",
+            "gold": "gold.svg",
+            "population": "population.svg",
+            "manpower": "manpower.svg",
+            "stability": "stability.svg",
+            "political_power": "political_power.svg",
+            "action_points": "action_points.svg",
+            "CLEAR ALL": "clear_all.svg",
+            "NOTIFICATIONS": "notifications.svg",
+            "LOGISTICS": "logistics.svg",
+            "COMBAT": "combat.svg",
+            "INTEL": "intel.svg",
+            "NATIONAL POLICY": "national_policy.svg",
+        }
+
+        for key, filename in icon_files.items():
+            filepath = os.path.join(icon_path, filename)
+            if not os.path.isfile(filepath):
+                continue
+            try:
+                image = pygame.image.load(filepath).convert_alpha()
+                icons[key] = pygame.transform.smoothscale(image, (18, 18))
+            except pygame.error:
+                continue
+
+        return icons
+
     @staticmethod
     def _format_number(value):
         try:
@@ -329,6 +413,30 @@ class InGameUI:
         if abs(number - int(number)) < 0.05:
             return f"{int(number):,}"
         return f"{number:,.1f}"
+
+    @staticmethod
+    def _format_compact_number(value):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            number = 0.0
+
+        sign = "-" if number < 0 else ""
+        number = abs(number)
+        for suffix, divisor in (("B", 1_000_000_000), ("M", 1_000_000), ("K", 1_000)):
+            if number >= divisor:
+                compact = number / divisor
+                text = f"{compact:.1f}".rstrip("0").rstrip(".")
+                return f"{sign}{text}{suffix}"
+        return f"{sign}{int(number):,}"
+
+    def _format_ingame_date(self):
+        try:
+            turnnumber = max(1, int(self.currentturnnumber))
+        except (TypeError, ValueError):
+            turnnumber = 1
+        currentdate = self._startdate + timedelta(days=(turnnumber - 1) * self._daysperturn)
+        return currentdate.strftime("%d/%m/%Y")
 
     @staticmethod
     def _fit_text(font, text, max_width):
@@ -351,6 +459,65 @@ class InGameUI:
         font = font or self.font
         fitted = self._fit_text(font, text, max_width)
         surface.blit(font.render(fitted, True, color), (x, y))
+
+    def _draw_topbar_background(self, surface):
+        rect = self.topbar.rect
+        if rect.width <= 0 or rect.height <= 0:
+            return
+
+        pygame.draw.rect(surface, (11, 13, 16), rect)
+        pygame.draw.rect(surface, (24, 28, 34), pygame.Rect(rect.x, rect.y, rect.width, 1))
+        pygame.draw.rect(surface, (32, 26, 15), pygame.Rect(rect.x, rect.bottom - 3, rect.width, 1))
+        pygame.draw.rect(surface, (195, 151, 67), pygame.Rect(rect.x, rect.bottom - 2, rect.width, 1))
+        pygame.draw.rect(surface, (0, 0, 0), pygame.Rect(rect.x, rect.bottom - 1, rect.width, 1))
+
+    def _draw_resource_chip(self, surface, x, y, icon_key, text, max_right, accent=(200, 170, 80)):
+        icon = self._topbar_icons.get(icon_key)
+        text = str(text)
+        text_surface = self.font.render(text, True, (232, 232, 232))
+        icon_width = 18 if icon is not None else 0
+        icon_gap = 6 if icon is not None else 0
+        chip_width = 12 + icon_width + icon_gap + text_surface.get_width() + 12
+        chip_height = 28
+
+        if x + chip_width > max_right:
+            return x, False
+
+        rect = pygame.Rect(x, y, chip_width, chip_height)
+        pygame.draw.rect(surface, (23, 27, 31), rect, border_radius=5)
+        pygame.draw.rect(surface, (53, 57, 62), rect, 1, border_radius=5)
+        pygame.draw.line(surface, accent, (rect.x + 7, rect.y + 2), (rect.x + 7, rect.bottom - 3), 2)
+
+        draw_x = rect.x + 12
+        if icon is not None:
+            surface.blit(icon, (draw_x, rect.y + (chip_height - icon.get_height()) // 2))
+            draw_x += icon.get_width() + icon_gap
+        surface.blit(text_surface, (draw_x, rect.y + (chip_height - text_surface.get_height()) // 2))
+        return rect.right + 8, True
+
+    def _draw_country_chip(self, surface, x, y, country_text, flag_img, max_right):
+        text_surface = self.font_bold.render(str(country_text), True, (238, 238, 238))
+        flag_width = 20 if flag_img is not None else 0
+        flag_gap = 7 if flag_img is not None else 0
+        chip_width = 12 + flag_width + flag_gap + text_surface.get_width() + 12
+        chip_height = 28
+
+        if x + chip_width > max_right:
+            return x, False
+
+        rect = pygame.Rect(x, y, chip_width, chip_height)
+        pygame.draw.rect(surface, (28, 31, 36), rect, border_radius=5)
+        pygame.draw.rect(surface, (73, 67, 49), rect, 1, border_radius=5)
+
+        draw_x = rect.x + 12
+        if flag_img is not None:
+            flag_rect = flag_img.get_rect()
+            flag_rect.topleft = (draw_x, rect.y + (chip_height - flag_rect.height) // 2)
+            surface.blit(flag_img, flag_rect)
+            draw_x += flag_img.get_width() + flag_gap
+
+        surface.blit(text_surface, (draw_x, rect.y + (chip_height - text_surface.get_height()) // 2))
+        return rect.right + 8, True
 
     def applylayout(self):
         window_width, window_height = self.window_size
@@ -573,6 +740,28 @@ class InGameUI:
                 if self._pausequit_rect.collidepoint(event.pos):
                     return self.actionquitgame
             return None
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = event.pos
+            selected_bottom_tab = self.bottom_buttons.selected
+            if selected_bottom_tab:
+                selected_rect = (self.bottom_buttons.item_rects or {}).get(selected_bottom_tab)
+                if selected_rect is not None and selected_rect.collidepoint(pos):
+                    self.bottom_buttons.set_selected(None)
+                    if selected_bottom_tab == "RESEARCH":
+                        self.researchview.isopen = False
+                    self.applylayout()
+                    return None
+
+            selected_left_tab = self.active_left_tab
+            if selected_left_tab:
+                selected_rect = (self.leftbar.item_rects or {}).get(selected_left_tab)
+                if selected_rect is not None and selected_rect.collidepoint(pos):
+                    self.active_left_tab = None
+                    if selected_left_tab == "NATIONAL POLICY":
+                        self.focusview.isopen = False
+                    self.applylayout()
+                    return None
         
         if self.focusview.isopen:
             result = self.focusview.handleevent(event)
@@ -602,7 +791,7 @@ class InGameUI:
 
                 self.active_left_tab = item
                 self.applylayout()
-                if item == "FOCUS TREE":
+                if item == "NATIONAL POLICY":
                     self.focusview.toggleview()
                     return self.actiontogglefocuspanel
                 return None
@@ -838,11 +1027,17 @@ class InGameUI:
 
         # full UI chrome (play)
         if self.leftbar.rect.width:
-            self.leftbar.draw(surface, self.font, mouse, font_bold=self.font_bold)
-        self.topbar.draw(surface)
+            self.leftbar.draw(
+                surface,
+                self.font,
+                mouse,
+                font_bold=self.font_bold,
+                icons=self._topbar_icons,
+                selected=self.active_left_tab,
+            )
         self.bottombar.draw(surface)
         self.bottom_buttons.draw(surface, self.font, mouse, font_bold=self.font_bold)
-        self.topbar.draw(surface)
+        self._draw_topbar_background(surface)
 
         # end turn button (bottom-right of map)
         hovered = self._endturn_rect.collidepoint(mouse)
@@ -886,18 +1081,35 @@ class InGameUI:
                 (20, 14)
             ) if self._flags.get(key) else None
         stats_x = info_x + title_surface.get_width() + 18
-        stats_y = info_y + 2
-        if flag_img:
-            surface.blit(flag_img, (stats_x, stats_y + 1))
-            stats_x += flag_img.get_width() + 8
+        stats_y = 11
 
         country_text = str(self.playercountry or "None")
-        stats_text = (
-            f"{country_text} | Gold {int(self.playergold)} | Turn {int(self.currentturnnumber)} | "
-            f"Pop {int(self.playerpopulation)} | Active MP {int(self._active_manpower)} | "
-            f"Stability {self.playerstability:.0f} | PP {int(self.playerpp)} | AP {int(self.playerap)}"
+        date_text = self._format_ingame_date()
+        max_right = self.topbar.rect.right - 12
+        stats_x, _ = self._draw_country_chip(surface, stats_x, stats_y, country_text, flag_img, max_right)
+
+        chip_data = (
+            ("gold", self._format_number(self.playergold), (177, 145, 70)),
+            ("turn", str(int(self.currentturnnumber)), (130, 138, 146)),
+            ("date", date_text, (177, 145, 70)),
+            ("population", self._format_compact_number(self.playerpopulation), (130, 138, 146)),
+            ("manpower", self._format_compact_number(self._active_manpower), (177, 145, 70)),
+            ("stability", f"{self.playerstability:.0f}%", (130, 138, 146)),
+            ("political_power", str(int(self.playerpp)), (177, 145, 70)),
+            ("action_points", str(int(self.playerap)), (130, 138, 146)),
         )
-        surface.blit(self.font.render(stats_text, True, (220, 220, 220)), (stats_x, stats_y + 2))
+        for icon_key, value_text, accent in chip_data:
+            stats_x, did_draw = self._draw_resource_chip(
+                surface,
+                stats_x,
+                stats_y,
+                icon_key,
+                value_text,
+                max_right,
+                accent=accent,
+            )
+            if not did_draw:
+                break
 
         # troop badges on top of the map (map-local centers need viewport offset)
         visiblebadgelist = gui_mergetroopbadgeentries(self._troopbadgelist, self.font, self._badge_flags)
