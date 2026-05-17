@@ -3040,9 +3040,6 @@ def main(eventbus=None, is_fullscreen=False):
                     selectedprovinceidset = set(selectedids)
 
                     if selectedids:
-                        if selectedprovinceid != selectedids[0]:
-                            select_sound.play()
-                            
                         selectedprovinceid = selectedids[0]
                         selectedprovince = provincemap.get(selectedprovinceid)
                         expandedstateid = selectedprovince.get("parentid") if selectedprovince else expandedstateid
@@ -3070,6 +3067,7 @@ def main(eventbus=None, is_fullscreen=False):
 
                 clickedbadgeprovinceid = getbadgehitprovinceid(eventmappos, troopbadgehitlist)
                 if clickedbadgeprovinceid:
+                    select_sound.play()
                     selectedprovince = provincemap.get(clickedbadgeprovinceid)
                     if selectedprovince and getprovincecontroller(selectedprovince) == playercountry:
                         selectedprovinceid = clickedbadgeprovinceid
@@ -3090,6 +3088,7 @@ def main(eventbus=None, is_fullscreen=False):
                         continue
 
                 if hoveredprovinceid:
+                    select_sound.play()
                     selectedprovince = provincemap.get(hoveredprovinceid)
                     if selectedprovince and getprovincecontroller(selectedprovince) == playercountry:
                         selectedprovinceid = hoveredprovinceid
