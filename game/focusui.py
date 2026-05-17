@@ -4,6 +4,8 @@ import pygame
 
 
 class FocusTreeView:
+    headerheight = 150
+
     def __init__(self):
         self.data = {"name": "National Policy", "focuses": []}
         self.isopen = False
@@ -14,6 +16,7 @@ class FocusTreeView:
         self.detailrect = pygame.Rect(0, 0, 1, 1)
         self.worldrects: dict[str, pygame.Rect] = {} # focusid to world rect
         self.iconcache = {}
+        self.imagecache = {}
         self.rootpath = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
         self.zoom = 0.85
         self.minzoom = 0.45
@@ -132,9 +135,10 @@ class FocusTreeView:
                     int(focus.get("x", 0) or 0),
                     int(focus.get("y", 0) or 0),
                     focus.get("icon", ""),
+                    focus.get("image", ""),
                 )
             ) # sample: ('focus_id', 0, 0, 'icon.png')
-        return tuple(focuses)
+        return (self.data.get("cover_image", ""), tuple(focuses))
 
 
     # dragging and zooming
@@ -161,9 +165,12 @@ class FocusTreeView:
     # for the layout
     def centerlayout(self, viewrect):
         bounds = self.worldbounds() #check the bounds of the world rects, so we can center the layout in the view
-        focusarea = pygame.Rect(0, 84, viewrect.width, max(1, viewrect.height - 120))
+        focusarea = pygame.Rect(0, self.headerheight + 18, viewrect.width, max(1, viewrect.height - self.headerheight - 54))
         self.panx = focusarea.centerx - bounds.centerx * self.zoom
         self.pany = focusarea.centery - bounds.centery * self.zoom
+        screentop = bounds.top * self.zoom + self.pany
+        if screentop < focusarea.top:
+            self.pany += focusarea.top - screentop
 
     def worldbounds(self):
         if not self.worldrects:
@@ -200,15 +207,19 @@ class FocusTreeView:
         pygame.draw.rect(surface, (0, 0, 0), viewrect)
 
 
+        self.drawcoverbanner(surface, viewrect)
 
-        self.closerect = pygame.Rect(viewrect.right - 150, 18, 118, 34)
+        self.closerect = pygame.Rect(viewrect.right - 150, 20, 118, 34)
         title = str(self.data.get("name") or "National Policy").replace("Focus Tree", "National Policy")
-        surface.blit(titlefont.render(title, True, (238, 220, 165)), (32, 22))
+        title_surface = titlefont.render(title, True, (238, 220, 165))
+        shadow_surface = titlefont.render(title, True, (0, 0, 0))
+        surface.blit(shadow_surface, (34, 24))
+        surface.blit(title_surface, (32, 22))
         self.drawbutton(surface, self.closerect, True, "Back", font)
 
         message = str(self.data.get("lastmessage") or "")
         if message:
-            self.fittext(surface, message, font, (190, 205, 230), pygame.Rect(32, 55, viewrect.width - 220, 22))
+            self.fittext(surface, message, font, (190, 205, 230), pygame.Rect(32, 62, viewrect.width - 220, 22))
 
         focuses = [focus for focus in self.data.get("focuses", ()) if isinstance(focus, dict)] # filter out invalid focuses
         if not focuses:
@@ -218,6 +229,9 @@ class FocusTreeView:
             return
 
         self.layoutnodes(viewrect, focuses)
+        treeclip = pygame.Rect(0, self.headerheight + 1, viewrect.width, max(1, viewrect.height - self.headerheight - 1))
+        previousclip = surface.get_clip()
+        surface.set_clip(treeclip)
         self.drawconnectors(surface, focuses)
 
 
@@ -226,10 +240,29 @@ class FocusTreeView:
             rect = self.noderects.get(focus.get("id"))
             if rect:
                 self.drawnode(surface, focus, rect, font, mouse)
+        surface.set_clip(previousclip)
 
         focus = self.findfocus(self.detailid)
         if focus:
             self.drawdetails(surface, focus, titlefont, font) # draw the details panel for the selected focus
+
+    def drawcoverbanner(self, surface, viewrect):
+        coverpath = str(self.data.get("cover_image") or "").strip()
+        if not coverpath:
+            return
+
+        cover = self.loadimage(coverpath)
+        if cover is None:
+            return
+
+        bannerrect = pygame.Rect(0, 0, viewrect.width, self.headerheight)
+        self.drawcroppedimage(surface, cover, bannerrect)
+        overlay = pygame.Surface(bannerrect.size, pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 60))
+        pygame.draw.rect(overlay, (0, 0, 0, 112), pygame.Rect(0, 0, min(520, bannerrect.width), bannerrect.height))
+        pygame.draw.rect(overlay, (0, 0, 0, 70), pygame.Rect(0, bannerrect.bottom - 46, bannerrect.width, 46))
+        surface.blit(overlay, bannerrect.topleft)
+        pygame.draw.line(surface, (238, 220, 165), (0, bannerrect.bottom - 1), (bannerrect.right, bannerrect.bottom - 1), 1)
 
 
 
@@ -302,25 +335,34 @@ class FocusTreeView:
 
         # draw the node background and border
         pygame.draw.rect(surface, fill, rect, border_radius=4)
-        pygame.draw.rect(surface, border, rect, 2, border_radius=4)
-        pygame.draw.rect(surface, border, pygame.Rect(rect.x, rect.y, rect.width, 6), border_radius=3)
-
-        icon = self.loadicon(focus.get("icon"))
-        iconw = max(18, int(46 * self.zoom))
-        iconh = max(14, int(34 * self.zoom))
-
-        # check icon rect and center
-        iconrect = pygame.Rect(rect.centerx - iconw // 2, rect.y + max(8, int(14 * self.zoom)), iconw, iconh)
+        icon = self.loadimage(focus.get("icon"))
         if icon:
-            drawicon = pygame.transform.smoothscale(icon, (iconw, iconh))
-            surface.blit(drawicon, drawicon.get_rect(center=iconrect.center))
+            self.drawcroppedimage(surface, icon, rect)
         else:
-            pygame.draw.rect(surface, (30, 34, 40), iconrect, border_radius=2)
-            pygame.draw.rect(surface, (116, 126, 140), iconrect, 1, border_radius=2)
+            pygame.draw.rect(surface, (30, 34, 40), rect.inflate(-8, -8), border_radius=3)
+
+        tint = pygame.Surface(rect.size, pygame.SRCALPHA)
+        if status in ("locked", "blocked", "waiting"):
+            tint.fill((0, 0, 0, 78))
+        elif status == "completed":
+            tint.fill((28, 78, 45, 46))
+        elif status == "active":
+            tint.fill((33, 81, 145, 42))
+        elif status == "available":
+            tint.fill((118, 86, 24, 30))
+        surface.blit(tint, rect.topleft)
+
+        titlebandheight = max(28, int(36 * self.zoom))
+        titleband = pygame.Surface((rect.width, titlebandheight), pygame.SRCALPHA)
+        titleband.fill((0, 0, 0, 150))
+        pygame.draw.line(titleband, (*border, 185), (0, 0), (rect.width, 0), 1)
+        surface.blit(titleband, (rect.x, rect.bottom - titlebandheight))
+        pygame.draw.rect(surface, border, rect, 2, border_radius=4)
+        pygame.draw.rect(surface, border, pygame.Rect(rect.x, rect.y, rect.width, max(4, int(6 * self.zoom))), border_radius=3)
 
         # draw the title if zoomed in enough
-        if self.zoom >= 0.7:
-            titlerect = pygame.Rect(rect.x + 8, rect.y + int(61 * self.zoom), rect.width - 16, 28)
+        if self.zoom >= 0.55:
+            titlerect = pygame.Rect(rect.x + 8, rect.bottom - titlebandheight + 4, rect.width - 16, titlebandheight - 8)
             self.fittext(surface, str(focus.get("title") or focus.get("id")), font, (244, 244, 244), titlerect)
 
 
@@ -330,9 +372,9 @@ class FocusTreeView:
         width = surface.get_width()
         height = surface.get_height()
         panelw = 410 if width >= 820 else max(320, width - 80)
-        panelh = height - 130
+        panelh = max(320, height - self.headerheight - 48)
         panelx = width - panelw - 34 if width >= 820 else 40
-        self.detailrect = pygame.Rect(panelx, 82, panelw, panelh)
+        self.detailrect = pygame.Rect(panelx, self.headerheight + 16, panelw, panelh)
 
 
         # draw the panel background and border
@@ -348,6 +390,17 @@ class FocusTreeView:
             surface.blit(titlefont.render(line, True, (238, 220, 165)), (x, y))
             y += titlefont.get_height() + 2
 
+        imagepath = str(focus.get("image") or self.data.get("cover_image") or "").strip()
+        detailimage = self.loadimage(imagepath)
+        if detailimage is not None:
+            y += 8
+            imagerect = pygame.Rect(x, y, contentw, min(132, max(86, self.detailrect.height // 5)))
+            self.drawcroppedimage(surface, detailimage, imagerect)
+            shade = pygame.Surface(imagerect.size, pygame.SRCALPHA)
+            shade.fill((0, 0, 0, 42))
+            surface.blit(shade, imagerect.topleft)
+            pygame.draw.rect(surface, (96, 104, 116), imagerect, 1, border_radius=3)
+            y = imagerect.bottom
 
         # decsription
         y += 8
@@ -435,6 +488,13 @@ class FocusTreeView:
 
 
     def loadicon(self, iconpath):
+        image = self.loadimage(iconpath)
+        if image is None:
+            return None
+
+        return pygame.transform.smoothscale(image, (46, 34))
+
+    def loadimage(self, iconpath):
         iconpath = str(iconpath or "").strip()
         if not iconpath:
             return None
@@ -444,8 +504,8 @@ class FocusTreeView:
             filepath = os.path.join(self.rootpath, filepath)
         filepath = os.path.normpath(filepath)
 
-        if filepath in self.iconcache:
-            return self.iconcache[filepath]
+        if filepath in self.imagecache:
+            return self.imagecache[filepath]
 
         image = None
         try:
@@ -454,12 +514,31 @@ class FocusTreeView:
                 loaded = loaded.convert_alpha()
             except pygame.error:
                 pass
-            image = pygame.transform.smoothscale(loaded, (46, 34))
+            image = loaded
         except (OSError, pygame.error):
             image = None
 
-        self.iconcache[filepath] = image
+        self.imagecache[filepath] = image
         return image
+
+    def drawcroppedimage(self, surface, image, rect):
+        if image is None or rect.width <= 0 or rect.height <= 0:
+            return
+
+        imagew, imageh = image.get_size()
+        if imagew <= 0 or imageh <= 0:
+            return
+
+        scale = max(rect.width / imagew, rect.height / imageh)
+        draww = max(1, int(imagew * scale))
+        drawh = max(1, int(imageh * scale))
+        scaled = pygame.transform.smoothscale(image, (draww, drawh))
+        drawx = rect.centerx - draww // 2
+        drawy = rect.centery - drawh // 2
+        previousclip = surface.get_clip()
+        surface.set_clip(rect)
+        surface.blit(scaled, (drawx, drawy))
+        surface.set_clip(previousclip)
 
 
 
