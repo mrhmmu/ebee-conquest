@@ -9,6 +9,51 @@ from svgelements import Path
 import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
+select_sound = None
+
+COVID_NEWS_EVENTS = {
+    10: {
+        "title": "FIRST COVID CASES",
+        "description": "Several Southeast Asian countries begin reporting their first COVID-19 cases.",
+    },
+    20: {
+        "title": "BORDER RESTRICTIONS IMPLEMENTED",
+        "description": "Governments across Southeast Asia tighten border controls to contain the virus.",
+    },
+    30: {
+        "title": "NATIONAL LOCKDOWNS BEGIN",
+        "description": "Movement control measures and lockdowns begin across multiple countries.",
+    },
+    40: {
+        "title": "COVID ENDEMIC IN THAILAND",
+        "description": "Thailand begins transitioning toward endemic COVID management policies.",
+    },
+    50: {
+        "title": "HOSPITALS UNDER PRESSURE",
+        "description": "Healthcare systems face rising pressure due to increasing infection rates.",
+    },
+    60: {
+        "title": "MASK MANDATES EXPANDED",
+        "description": "Public mask mandates are expanded in major cities and transportation hubs.",
+    },
+    70: {
+        "title": "ECONOMIC SLOWDOWN",
+        "description": "Regional economies experience major slowdowns due to pandemic restrictions.",
+    },
+    80: {
+        "title": "REMOTE LEARNING INTRODUCED",
+        "description": "Schools and universities transition to online learning systems.",
+    },
+    90: {
+        "title": "VACCINE DEVELOPMENT PROGRESSES",
+        "description": "Global vaccine development efforts begin showing positive results.",
+    },
+    100: {
+        "title": "SOUTHEAST ASIA ADAPTS TO NEW NORMAL",
+        "description": "Countries continue adapting to long-term pandemic management strategies.",
+    },
+}
+
 LEADERS = {
     "Malaysia": "Mahathir Mohamad",
     "Singapore": "Lawrence Wong",
@@ -771,10 +816,23 @@ def drawloadingscreen(
 
 
 def main(eventbus=None, is_fullscreen=False):
+    global select_sound
+    
     if eventbus is None:
         eventbus = EventBus()
     startupbegintimestamp = time.perf_counter()
     pygame.init()
+    pygame.mixer.init()
+    
+    select_sound = pygame.mixer.Sound("game/sounds/troop_select.wav")
+    select_sound.set_volume(0.5)
+    
+    move_sound = pygame.mixer.Sound("game/sounds/troop_move.wav")
+    move_sound.set_volume(0.5)
+    
+    mahathir_speech = pygame.mixer.Sound("game/speeches/mahathir_speech.wav")
+    mahathir_speech.set_volume(0.7)
+    
     logstartupdiagnostics(startupbegintimestamp, "pygame init", f"python={platform.python_version()} pygame={pygame.version.ver}")
 
     # Set display mode once based on is_fullscreen
@@ -2992,6 +3050,20 @@ def main(eventbus=None, is_fullscreen=False):
                         researching_node_id = None
                 frontlineupdates.update(refreshfrontlines(allowautoadvance=False))
                 currentturnnumber += 1
+                
+                if currentturnnumber in COVID_NEWS_EVENTS:
+                    news = COVID_NEWS_EVENTS[currentturnnumber]
+
+                    newssystem.pushnews(
+                        title=news["title"],
+                        description=news["description"],
+                        imagekey="placeholder",
+                        priority=3,
+                    )
+                
+                if currentturnnumber == 2 and playercountry.lower() == "malaysia":
+                    mahathir_speech.play()
+                                      
                 routepreviewset = frontlineupdates
                 updatescriptengine()
                 eventbus.emit(
@@ -3231,6 +3303,7 @@ def main(eventbus=None, is_fullscreen=False):
 
                 clickedbadgeprovinceid = getbadgehitprovinceid(eventmappos, troopbadgehitlist)
                 if clickedbadgeprovinceid:
+                    select_sound.play()
                     selectedprovince = provincemap.get(clickedbadgeprovinceid)
                     if selectedprovince and getprovincecontroller(selectedprovince) == playercountry:
                         selectedprovinceid = clickedbadgeprovinceid
@@ -3251,6 +3324,7 @@ def main(eventbus=None, is_fullscreen=False):
                         continue
 
                 if hoveredprovinceid:
+                    select_sound.play()
                     selectedprovince = provincemap.get(hoveredprovinceid)
                     if selectedprovince and getprovincecontroller(selectedprovince) == playercountry:
                         selectedprovinceid = hoveredprovinceid
@@ -3408,6 +3482,10 @@ def main(eventbus=None, is_fullscreen=False):
                     continue
 
                 routepreviewset = set()
+                
+                if sourceprovinceidlist:
+                    move_sound.play()
+                    
                 for sourceprovinceid in sourceprovinceidlist:
                     if sourceprovinceid == hoveredprovinceid:
                         continue
@@ -3439,7 +3517,9 @@ def main(eventbus=None, is_fullscreen=False):
                     moveorderapcost = economyconfig.get("moveorderapcost", 10)
                     if not developmentmode:
                         playerap = max(0, playerap - moveorderapcost)
-
+                        
+                    move_sound.play()
+                    
                     movementorderlist.append(
                         {
                             "amount": movingtroopcount,

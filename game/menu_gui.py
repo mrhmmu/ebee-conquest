@@ -5,7 +5,11 @@ import os
 from engine.runtime import main
 from game.scripts import ScriptMenuController
 
+pygame.mixer.pre_init(44100, -16, 2, 1024)
 pygame.init()
+
+button_click_sound = pygame.mixer.Sound("game/sounds/click.wav")
+button_click_sound.set_volume(0.4)
 
 
 
@@ -154,11 +158,13 @@ while run:
                     pygame.mixer.music.set_volume(volume / 100)
 
                 if button_m < mouse[0] < button_m + button_width and 530 < mouse[1] < 583:
+                    button_click_sound.play()
                     remove_cache() 
 
 
 
                 if button_m < mouse[0] < button_m + button_width and 310 < mouse[1] < 363:
+                    button_click_sound.play()
                     is_fullscreen = not is_fullscreen
                     if is_fullscreen:
                         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
@@ -175,24 +181,30 @@ while run:
 
 
                 if button_m < mouse[0] < button_m + button_width and 420 < mouse[1] < 473:
-                            menu = 'main'
+                    button_click_sound.play()
+                    menu = 'main'
 
             elif menu == 'main':
                 if button_m < mouse[0] < button_m + button_width and button_y_positions['new_game'] < mouse[1] < button_y_positions['new_game'] + button_height:
+                    button_click_sound.play()
                     main(is_fullscreen=is_fullscreen)
                     pygame.quit()
                     sys.exit()
                     
                 elif button_m < mouse[0] < button_m+button_width and button_y_positions['settings'] < mouse[1] < button_y_positions['settings'] + button_height:
+                    button_click_sound.play()
                     menu = 'settings'
 
                 elif button_m < mouse[0] < button_m + button_width and button_y_positions['scripts'] < mouse[1] < button_y_positions['scripts'] + button_height:
+                    button_click_sound.play()
                     menu = 'scripts'
 
                 elif button_m < mouse[0] < button_m + button_width and button_y_positions['quit'] < mouse[1] < button_y_positions['quit'] + button_height:
+                    button_click_sound.play()
                     run = False
 
                 elif button_m < mouse[0] < button_m + button_width and button_y_positions['load_game'] < mouse[1] < button_y_positions['load_game'] + button_height:
+                    button_click_sound.play()
                     print('loading game....')
 
 
