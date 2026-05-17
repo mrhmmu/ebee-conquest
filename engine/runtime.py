@@ -11,6 +11,49 @@ ctypes.windll.user32.SetProcessDPIAware()
 
 select_sound = None
 
+COVID_NEWS_EVENTS = {
+    10: {
+        "title": "FIRST COVID CASES",
+        "description": "Several Southeast Asian countries begin reporting their first COVID-19 cases.",
+    },
+    20: {
+        "title": "BORDER RESTRICTIONS IMPLEMENTED",
+        "description": "Governments across Southeast Asia tighten border controls to contain the virus.",
+    },
+    30: {
+        "title": "NATIONAL LOCKDOWNS BEGIN",
+        "description": "Movement control measures and lockdowns begin across multiple countries.",
+    },
+    40: {
+        "title": "COVID ENDEMIC IN THAILAND",
+        "description": "Thailand begins transitioning toward endemic COVID management policies.",
+    },
+    50: {
+        "title": "HOSPITALS UNDER PRESSURE",
+        "description": "Healthcare systems face rising pressure due to increasing infection rates.",
+    },
+    60: {
+        "title": "MASK MANDATES EXPANDED",
+        "description": "Public mask mandates are expanded in major cities and transportation hubs.",
+    },
+    70: {
+        "title": "ECONOMIC SLOWDOWN",
+        "description": "Regional economies experience major slowdowns due to pandemic restrictions.",
+    },
+    80: {
+        "title": "REMOTE LEARNING INTRODUCED",
+        "description": "Schools and universities transition to online learning systems.",
+    },
+    90: {
+        "title": "VACCINE DEVELOPMENT PROGRESSES",
+        "description": "Global vaccine development efforts begin showing positive results.",
+    },
+    100: {
+        "title": "SOUTHEAST ASIA ADAPTS TO NEW NORMAL",
+        "description": "Countries continue adapting to long-term pandemic management strategies.",
+    },
+}
+
 LEADERS = {
     "Malaysia": "Anwar Ibrahim",
     "Singapore": "Lawrence Wong",
