@@ -431,7 +431,9 @@ class InGameUI:
         self._warprogress_drag_offset = (0, 0)
         self._warprogress_active_index = 0
         self.production_popup_open = False
-        self._production_popup_back_rect = pygame.Rect(0, 0, 10, 10)
+        self._production_popup_back_rect = pygame.Rect(0, 0, 10,10)
+        self._production_selection_rects = [pygame.Rect(0, 0, 10,10) for _ in range(4)]
+        self.production_selected = None
         self._recruit_action_rect = pygame.Rect(0, 0, 10, 10)
         self._declarewar_rect = pygame.Rect(0, 0, 10, 10)
         self._split_rect = pygame.Rect(0, 0, 10, 10)
@@ -800,6 +802,7 @@ class InGameUI:
         content_w = max(1, self.rightbar.rect.width - 24)
         self._recruit_action_rect = pygame.Rect(content_x, content_y + 40, content_w, 34)
         self._declarewar_rect = pygame.Rect(content_x, content_y + 82, content_w, 34)
+        self._production_blank_rect = pygame.Rect(content_x, content_y + 40, content_w, 90)
 
         # troop decision buttons at the bottom of right panel
         btn_w = (content_w - 20) // 3
@@ -840,13 +843,7 @@ class InGameUI:
 
 
 
-        content_x = self.rightbar.rect.x + 12
-        content_y = self.rightbar.rect.y + 12
-        content_w = max(1, self.rightbar.rect.width - 24)
-        self._recruit_action_rect = pygame.Rect(content_x, content_y + 40, content_w, 34)
-        self._declarewar_rect = pygame.Rect(content_x, content_y + 82, content_w, 34)
-        self._production_blank_rect = pygame.Rect(content_x, content_y + 40, content_w, 90)
-
+        
 
     def select_map_country(self, country_name: str | None):
         self._selectedmapcountry = country_name
@@ -979,7 +976,6 @@ class InGameUI:
             self.pausemenuopen = not self.pausemenuopen
             return self.actionpausemenu
         
-
         if self.production_popup_open:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 self.production_popup_open = False
@@ -988,6 +984,12 @@ class InGameUI:
                 if self._production_popup_back_rect.collidepoint(event.pos):
                     self.production_popup_open = False
                     return None
+                
+                for i in range(4):
+                    if self._production_selection_rects[i].collidepoint(event.pos):
+                        self.production_selected = i + 1
+                        return None
+                
                 self.production_popup_open = False
                 return None
 
@@ -1399,6 +1401,39 @@ class InGameUI:
                 surface.blit(ts, (rect.x + padding, ty))
                 ty += ts.get_height()
 
+
+
+        if self.production_popup_open:
+            overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 120))
+            surface.blit(overlay, (0, 0))
+            popup_rect = pygame.Rect(0, 0, 600, 400)
+            popup_rect.center = surface.get_rect().center
+            self._draw_glass_panel(surface, popup_rect, radius=8, border=(72, 86, 108), glow=True)
+            title = self.title_font.render("PRODUCTION", True, _C_GOLD_BRIGHT)
+            surface.blit(title, title.get_rect(center=(popup_rect.centerx, popup_rect.y + 40)))
+
+            btn_w, btn_h = 160, 50
+            btn_gap_x, btn_gap_y = 20, 15
+            start_x = popup_rect.centerx - btn_w - btn_gap_x // 2
+            start_y = popup_rect.y + 90
+
+            for i in range(4):
+                col = i % 2
+                row = i // 2
+                x = start_x + col * (btn_w + btn_gap_x)
+                y = start_y + row * (btn_h + btn_gap_y)
+                self._production_selection_rects[i] = pygame.Rect(x, y, btn_w, btn_h)
+                selected = self.production_selected == (i + 1)
+                label = f"selection {i + 1}"
+                self._draw_glow_btn(surface, f"prod_sel_{i}", self._production_selection_rects[i], True, label, primary=selected, mouse=mouse)
+
+            back_w, back_h = 140, 40
+            self._production_popup_back_rect = pygame.Rect(0, 0, back_w, back_h)
+            self._production_popup_back_rect.centerx = popup_rect.centerx
+            self._production_popup_back_rect.y = popup_rect.bottom - back_h - 20
+            self._draw_glow_btn(surface, "prod_back", self._production_popup_back_rect, True, "BACK", mouse=mouse)
+
         if self.focusview.isopen:
             self.focusview.draw(surface, self.title_font, self.font, mouse)
             if self.pausemenuopen:
@@ -1591,23 +1626,6 @@ class InGameUI:
 
         if self.pausemenuopen:
             self._draw_pausemenu(surface)
-
-
-
-        if self.production_popup_open:
-            overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 120))
-            surface.blit(overlay, (0, 0))
-            popup_rect = pygame.Rect(0, 0, 600, 400)
-            popup_rect.center = surface.get_rect().center
-            self._draw_glass_panel(surface, popup_rect, radius=8, border=(72, 86, 108), glow=True)
-            title = self.title_font.render("PRODUCTION", True, _C_GOLD_BRIGHT)
-            surface.blit(title, title.get_rect(center=(popup_rect.centerx, popup_rect.y + 40)))
-            back_w, back_h = 140, 40
-            self._production_popup_back_rect = pygame.Rect(0, 0, back_w, back_h)
-            self._production_popup_back_rect.centerx = popup_rect.centerx
-            self._production_popup_back_rect.y = popup_rect.bottom - back_h - 20
-            self._draw_glow_btn(surface, "prod_back", self._production_popup_back_rect, True, "BACK", mouse=mouse)
 
 
     def _draw_metric_chip(self, surface, rect, label, value, icon_key=None, accent=_C_GOLD):
@@ -1851,7 +1869,7 @@ class InGameUI:
             pygame.Rect(content_x + (chip_w + chip_gap) * 2, chip_y, chip_w, 50),
             "Total casualties",
             self._format_number(total_casualties),
-            icon_key="combat",
+            icon_key="COMBAT",
             accent=_C_DANGER,
         )
 
