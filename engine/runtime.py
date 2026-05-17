@@ -830,7 +830,7 @@ def main(eventbus=None, is_fullscreen=False):
     move_sound = pygame.mixer.Sound("game/sounds/troop_move.wav")
     move_sound.set_volume(0.5)
     
-    mahathir_speech = pygame.mixer.Sound("game/speeches/mahathir_speech.mp3")
+    mahathir_speech = pygame.mixer.Sound("game/speeches/mahathir_speech.wav")
     mahathir_speech.set_volume(0.7)
     
     logstartupdiagnostics(startupbegintimestamp, "pygame init", f"python={platform.python_version()} pygame={pygame.version.ver}")
@@ -2917,7 +2917,7 @@ def main(eventbus=None, is_fullscreen=False):
                         priority=3,
                     )
                 
-                if currentturnnumber == 2 and playercountry.lower() == "malaysia":
+                if currentturnnumber == 2 and playercountry.lower() == "Malaysia":
                     mahathir_speech.play()
                                       
                 routepreviewset = frontlineupdates
