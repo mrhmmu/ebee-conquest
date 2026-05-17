@@ -2917,7 +2917,7 @@ def main(eventbus=None, is_fullscreen=False):
                         priority=3,
                     )
                 
-                if currentturnnumber == 2 and playercountry.lower() == "Malaysia":
+                if currentturnnumber == 2 and playercountry.lower() == "malaysia":
                     mahathir_speech.play()
                                       
                 routepreviewset = frontlineupdates
