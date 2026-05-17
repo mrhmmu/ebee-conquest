@@ -9,6 +9,8 @@ from svgelements import Path
 import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
+select_sound = None
+
 LEADERS = {
     "Malaysia": "Anwar Ibrahim",
     "Singapore": "Lawrence Wong",
@@ -771,6 +773,8 @@ def drawloadingscreen(
 
 
 def main(eventbus=None, is_fullscreen=False):
+    global select_sound
+    
     if eventbus is None:
         eventbus = EventBus()
     startupbegintimestamp = time.perf_counter()
