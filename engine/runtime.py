@@ -3280,7 +3280,9 @@ def main(eventbus=None, is_fullscreen=False):
                     moveorderapcost = economyconfig.get("moveorderapcost", 10)
                     if not developmentmode:
                         playerap = max(0, playerap - moveorderapcost)
-
+                        
+                    move_sound.play()
+                    
                     movementorderlist.append(
                         {
                             "amount": movingtroopcount,
