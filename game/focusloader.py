@@ -25,7 +25,8 @@ def focustreefromdata(data: Mapping):
     country = data.get("country")
     name = data.get("name") or (f"{country} National Policy" if country else str(treeid))
     name = str(name).replace("Focus Tree", "National Policy")
-    return FocusTree(treeid=treeid, country=country, name=name, focuses=focuses)
+    coverimage = str(data.get("cover_image", "") or "").strip()
+    return FocusTree(treeid=treeid, country=country, name=name, focuses=focuses, cover_image=coverimage)
 
 
 def loadfocustreeforcountry(countryname: str | None, datadir: str | None = None):

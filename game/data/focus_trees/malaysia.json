@@ -2,6 +2,7 @@
   "id": "malaysia",
   "country": "Malaysia",
   "name": "Malaysia Focus Tree",
+  "cover_image": "assets/focus/malaysia_national_policy_banner.png",
   "focuses": [
     {
       "id": "resolve_political_crisis",

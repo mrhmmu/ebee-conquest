@@ -338,6 +338,8 @@ class InGameUI:
     actionsplit = "split"
     actionmerge = "merge"
     actionfrontline = "frontline"
+    actionautoadvance = "autoadvance"
+    actiondetachregiment = "detachregiment"
     actiontogglefocuspanel = "togglefocuspanel"
     actionstartfocus = "startfocus"
     actionpausemenu = "pausemenu"
@@ -413,6 +415,14 @@ class InGameUI:
         self._endturn_rect = pygame.Rect(0, 0, 10, 10)  # placed near map bottom-right
         self._endturn_glow = 0.0
         self._button_glows: dict[str, float] = {}
+        self._topbar_metric_rects = {}
+        self._topbar_metric_data = {}
+        self._topbar_metric_glows = {}
+        self._active_topbar_metric = None
+        self._topbar_metric_popup_rect = pygame.Rect(0, 0, 10, 10)
+        self._topbar_metric_snapshot = {}
+        self._topbar_metric_rates = {}
+        self._topbar_metric_rate_turn = None
 
         # right panel interactive rects (computed in applylayout)
         self._recruit_action_rect = pygame.Rect(0, 0, 10, 10)
@@ -420,6 +430,8 @@ class InGameUI:
         self._split_rect = pygame.Rect(0, 0, 10, 10)
         self._merge_rect = pygame.Rect(0, 0, 10, 10)
         self._frontline_rect = pygame.Rect(0, 0, 10, 10)
+        self._auto_advance_rect = pygame.Rect(0, 0, 10, 10)
+        self._detach_regiment_rects = {}
         self._research_btn_rects = [pygame.Rect(0, 0, 10, 10) for _ in range(4)]
         self._research_back_rect = pygame.Rect(0, 0, 10, 10)
         self._warprogress_popup_rect = pygame.Rect(0, 0, 10, 10)
@@ -463,7 +475,7 @@ class InGameUI:
                 "TRADE",
                 "PRODUCTION",
                 "CONSTRUCTION",
-                "RECRUIT",
+                "TROOPS",
             ]
         )
         self.bottom_buttons.set_selected(None)
@@ -533,12 +545,23 @@ class InGameUI:
             "COMBAT": "combat.svg",
             "INTEL": "intel.svg",
             "NATIONAL POLICY": "national_policy.svg",
+            "notifications": "notifications.svg",
+            "logistics": "logistics.svg",
+            "combat": "combat.svg",
+            "intel": "intel.svg",
+            "national_policy": "national_policy.svg",
             "RESEARCH": "research.svg",
             "DIPLOMACY": "diplomacy.svg",
             "TRADE": "trade.svg",
             "PRODUCTION": "production.svg",
             "CONSTRUCTION": "construction.svg",
-            "RECRUIT": "recruit.svg",
+            "TROOPS": "recruit.svg",
+            "research": "research.svg",
+            "diplomacy": "diplomacy.svg",
+            "trade": "trade.svg",
+            "production": "production.svg",
+            "construction": "construction.svg",
+            "recruit": "recruit.svg",
             "war_progress": "war_progress.svg",
             "occupation": "occupation.svg",
             "close": "close.svg",
@@ -588,6 +611,17 @@ class InGameUI:
                 text = f"{compact:.1f}".rstrip("0").rstrip(".")
                 return f"{sign}{text}{suffix}"
         return f"{sign}{int(number):,}"
+
+    @staticmethod
+    def _format_signed_compact_number(value):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            number = 0.0
+        if abs(number) < 0.05:
+            return "0"
+        prefix = "+" if number > 0 else ""
+        return f"{prefix}{InGameUI._format_compact_number(number)}"
 
     def _format_ingame_date(self):
         try:
@@ -689,8 +723,22 @@ class InGameUI:
             pygame.draw.line(contact, (0, 0, 0, alpha), (0, step), (rect.width, step))
         surface.blit(contact, rect.topleft)
 
-    def _draw_resource_chip(self, surface, x, y, icon_key, label, value, max_right, accent=(200, 170, 80)):
+    def _draw_resource_chip(
+        self,
+        surface,
+        x,
+        y,
+        icon_key,
+        label,
+        value,
+        max_right,
+        accent=(200, 170, 80),
+        metric_key=None,
+        mouse=None,
+    ):
         icon = self._topbar_icons.get(icon_key)
+        metric_key = metric_key or icon_key
+        mouse = mouse or pygame.mouse.get_pos()
         value = str(value)
         label = str(label)
         value_surface = self.number_font.render(value, True, _C_TEXT)
@@ -704,7 +752,33 @@ class InGameUI:
             return x, False
 
         rect = pygame.Rect(x, y, chip_width, chip_height)
-        self._draw_glass_panel(surface, rect, radius=6, border=(48, 62, 80))
+        hovered = rect.collidepoint(mouse)
+        active = metric_key == self._active_topbar_metric
+        glow = self._topbar_metric_glows.get(metric_key, 0.0)
+        if hovered or active:
+            glow = min(1.0, glow + 0.14)
+        else:
+            glow = max(0.0, glow - 0.08)
+        self._topbar_metric_glows[metric_key] = glow
+
+        if glow > 0.01:
+            glow_surface = pygame.Surface((rect.width + 24, rect.height + 24), pygame.SRCALPHA)
+            for ring in range(4):
+                ring_alpha = int(glow * (38 - ring * 7))
+                if ring_alpha <= 0:
+                    continue
+                offset = ring * 2 + 2
+                pygame.draw.rect(
+                    glow_surface,
+                    (*accent, ring_alpha),
+                    (12 - offset, 12 - offset, rect.width + offset * 2, rect.height + offset * 2),
+                    width=2,
+                    border_radius=8 + offset,
+                )
+            surface.blit(glow_surface, (rect.x - 12, rect.y - 12))
+
+        border = accent if active else ((72, 88, 111) if hovered else (48, 62, 80))
+        self._draw_glass_panel(surface, rect, radius=6, border=border)
         pygame.draw.line(surface, accent, (rect.x + 8, rect.y + 9), (rect.x + 8, rect.bottom - 9), 2)
 
         draw_x = rect.x + 20
@@ -713,6 +787,14 @@ class InGameUI:
             draw_x += icon.get_width() + 12
         surface.blit(value_surface, (draw_x, rect.y + 9))
         surface.blit(label_surface, (draw_x, rect.y + 32))
+        if metric_key:
+            self._topbar_metric_rects[metric_key] = rect
+            self._topbar_metric_data[metric_key] = {
+                "label": label,
+                "value": value,
+                "icon_key": icon_key,
+                "accent": accent,
+            }
         return rect.right + 10, True
 
     def _draw_country_chip(self, surface, x, y, country_text, flag_img, max_right):
@@ -741,6 +823,133 @@ class InGameUI:
         surface.blit(label_surface, (draw_x, rect.y + 34))
         return rect.right + 12, True
 
+    def _topbar_metric_values(self):
+        return {
+            "gold": float(self.playergold or 0),
+            "population": float(self.playerpopulation or 0),
+            "manpower": float(self._active_manpower or 0),
+            "stability": float(self.playerstability or 0),
+            "political_power": float(self.playerpp or 0),
+            "action_points": float(self.playerap or 0),
+            "turn": float(self.currentturnnumber or 0),
+        }
+
+    def _update_topbar_metric_rates(self):
+        values = self._topbar_metric_values()
+        try:
+            turnnumber = int(self.currentturnnumber or 0)
+        except (TypeError, ValueError):
+            turnnumber = 0
+
+        if self._topbar_metric_rate_turn is None:
+            self._topbar_metric_rates = {key: 0.0 for key in values}
+        elif turnnumber != self._topbar_metric_rate_turn:
+            previousvalues = self._topbar_metric_snapshot or {}
+            self._topbar_metric_rates = {
+                key: values.get(key, 0.0) - float(previousvalues.get(key, values.get(key, 0.0)) or 0.0)
+                for key in values
+            }
+
+        self._topbar_metric_snapshot = values
+        self._topbar_metric_rate_turn = turnnumber
+
+    def _get_topbar_metric_info(self, metric_key):
+        affected = {
+            "gold": "tax income, controlled land, focus rewards, recruitment and spending",
+            "population": "controlled population, recruitment, conquest, scripted events",
+            "manpower": "troops in controlled provinces and active movement orders",
+            "stability": "focus effects, events, war pressure and national policy",
+            "political_power": "turn income, focuses, diplomacy and decision costs",
+            "action_points": "turn refreshes, movement orders and command actions",
+            "turn": "end-turn actions, research progress, focus progress and movement",
+            "date": "turn length and campaign start date",
+        }
+        full_names = {
+            "gold": "Treasury Gold",
+            "population": "National Population",
+            "manpower": "Active Manpower",
+            "stability": "National Stability",
+            "political_power": "Political Power",
+            "action_points": "Action Points",
+            "turn": "Campaign Turn",
+            "date": "Campaign Date",
+        }
+        rate = float(self._topbar_metric_rates.get(metric_key, 0.0) or 0.0)
+        if metric_key == "date":
+            rate_text = f"+{int(self._daysperturn)} days / turn"
+        elif metric_key == "turn":
+            rate_text = "+1 / turn"
+        elif metric_key == "stability":
+            rate_text = "No change last turn" if abs(rate) < 0.05 else f"{rate:+.1f}% / turn"
+        else:
+            rate_text = (
+                "No change last turn"
+                if abs(rate) < 0.05
+                else f"{self._format_signed_compact_number(rate)} / turn"
+            )
+
+        data = self._topbar_metric_data.get(metric_key, {})
+        return {
+            "full_name": full_names.get(metric_key, str(data.get("label", metric_key)).title()),
+            "current": str(data.get("value", "")),
+            "rate": rate_text,
+            "affected": affected.get(metric_key, "current campaign state and scripted effects"),
+            "icon_key": data.get("icon_key", metric_key),
+            "accent": data.get("accent", _C_GOLD),
+        }
+
+    def _draw_topbar_metric_popup(self, surface, mouse):
+        metric_key = self._active_topbar_metric
+        anchor_rect = self._topbar_metric_rects.get(metric_key)
+        if not metric_key or anchor_rect is None:
+            self._topbar_metric_popup_rect = pygame.Rect(0, 0, 10, 10)
+            return
+
+        info = self._get_topbar_metric_info(metric_key)
+        popup_w = min(332, max(284, surface.get_width() - 24))
+        popup_h = 156
+        popup_x = anchor_rect.centerx - popup_w // 2
+        popup_y = anchor_rect.bottom + 8
+        popup_x = max(12, min(surface.get_width() - popup_w - 12, popup_x))
+        popup_y = max(self.topbar_height + 8, min(surface.get_height() - popup_h - 12, popup_y))
+        popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
+        self._topbar_metric_popup_rect = popup_rect
+
+        self._draw_glass_panel(surface, popup_rect, radius=8, border=info["accent"], glow=True)
+        icon = self._topbar_icons.get(info["icon_key"])
+        title_x = popup_rect.x + 18
+        if icon is not None:
+            surface.blit(icon, (title_x, popup_rect.y + 16))
+            title_x += icon.get_width() + 10
+        surface.blit(self.font_bold.render(info["full_name"], True, _C_TEXT), (title_x, popup_rect.y + 12))
+        current_text = self.small_font.render(f"Current: {info['current']}", True, _C_TEXT_MUTED)
+        surface.blit(current_text, (title_x, popup_rect.y + 34))
+
+        row_defs = (
+            ("turn", "Rate", info["rate"]),
+            ("logistics", "Affected by", info["affected"]),
+            ("intel", "Shown as", self._topbar_metric_data.get(metric_key, {}).get("label", info["full_name"])),
+        )
+        row_y = popup_rect.y + 64
+        for row_icon_key, label, value in row_defs:
+            row_rect = pygame.Rect(popup_rect.x + 14, row_y, popup_rect.width - 28, 26)
+            hovered = row_rect.collidepoint(mouse)
+            row_top = (28, 39, 59) if hovered else (16, 24, 38)
+            self._draw_vertical_gradient_rect(surface, row_rect, row_top, (9, 15, 24), radius=5)
+            pygame.draw.rect(surface, (48, 62, 80), row_rect, 1, border_radius=5)
+            row_icon = self._topbar_icons.get(row_icon_key)
+            row_x = row_rect.x + 8
+            if row_icon is not None:
+                small_icon = pygame.transform.smoothscale(row_icon, (16, 16))
+                surface.blit(small_icon, (row_x, row_rect.y + 5))
+                row_x += 22
+            label_surface = self.small_font_bold.render(str(label).upper(), True, _C_GOLD_BRIGHT)
+            surface.blit(label_surface, (row_x, row_rect.y + 6))
+            value_x = row_x + 82
+            max_value_w = max(40, row_rect.right - value_x - 8)
+            self._draw_text_fit(surface, value, _C_TEXT, value_x, row_rect.y + 5, max_value_w, self.small_font)
+            row_y += 30
+
     def applylayout(self):
         window_width, window_height = self.window_size
 
@@ -756,8 +965,8 @@ class InGameUI:
             show_bottom = True
             show_right = bool(
                 self._countrymenutarget
-                or self.bottom_buttons.selected == "RECRUIT"
                 or self.bottom_buttons.selected == "PRODUCTION"
+                or self.bottom_buttons.selected == "TROOPS"
                 or self.active_left_tab == "COMBAT"
                 or self._selectedmapcountry
             )
@@ -805,12 +1014,13 @@ class InGameUI:
         self._production_blank_rect = pygame.Rect(content_x, content_y + 40, content_w, 90)
 
         # troop decision buttons at the bottom of right panel
-        btn_w = (content_w - 20) // 3
+        btn_w = max(1, (content_w - 30) // 4)
         btn_h = 50
         btn_y = (self.rightbar.rect.bottom - 12 - btn_h) if self.rightbar.rect.width else (self.map_rect.bottom - 12 - btn_h)
         self._split_rect = pygame.Rect(content_x, btn_y, btn_w, btn_h)
         self._merge_rect = pygame.Rect(content_x + btn_w + 10, btn_y, btn_w, btn_h)
         self._frontline_rect = pygame.Rect(content_x + (btn_w + 10) * 2, btn_y, btn_w, btn_h)
+        self._auto_advance_rect = pygame.Rect(content_x + (btn_w + 10) * 3, btn_y, btn_w, btn_h)
         btn_w = 400
         btn_h = 60
         btn_gap = 20
@@ -960,10 +1170,17 @@ class InGameUI:
                     if controller == self.playercountry:
                         manpower += int(province.get("troops", 0) or 0)
             self._active_manpower = manpower
+        self._update_topbar_metric_rates()
 
     def update(self, elapsedseconds: float):
         # retained for runtime compatibility
         return
+
+    def _get_selected_division_entry(self):
+        for entry in self._selectedtroopentries or ():
+            if isinstance(entry, dict) and entry.get("divisionid"):
+                return entry
+        return None
 
 
 
@@ -1031,6 +1248,23 @@ class InGameUI:
                 if self._pausequit_rect.collidepoint(event.pos):
                     return self.actionquitgame
             return None
+
+        if self.gamephase == "play" and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            pos = event.pos
+            clicked_metric = None
+            for metric_key, metric_rect in (self._topbar_metric_rects or {}).items():
+                if metric_rect.collidepoint(pos):
+                    clicked_metric = metric_key
+                    break
+            if clicked_metric:
+                self._active_topbar_metric = (
+                    None if self._active_topbar_metric == clicked_metric else clicked_metric
+                )
+                return None
+            if self._active_topbar_metric:
+                if self._topbar_metric_popup_rect.collidepoint(pos):
+                    return None
+                self._active_topbar_metric = None
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             pos = event.pos
@@ -1133,16 +1367,17 @@ class InGameUI:
                 ):
                     return self.actiondeclarewar
                 return None
-        if selected_tab == "RECRUIT":
+        if selected_tab == "TROOPS":
             if self._recruit_action_rect.collidepoint(pos):
                 if self.recruitenabled:
                     return self.actionrecruit
                 return None
-            
-
+            for provinceid, detachrect in (self._detach_regiment_rects or {}).items():
+                if detachrect.collidepoint(pos):
+                    return (self.actiondetachregiment, provinceid)
 
       
-        if selected_tab == "RECRUIT" and self._selectedtroopentries:
+        if selected_tab == "TROOPS" and self._selectedtroopentries:
             selected = [e for e in self._selectedtroopentries if isinstance(e, dict)]
             totaltroops = sum(max(0, int(e.get("troops", 0))) for e in selected)
             if totaltroops > 0:
@@ -1152,6 +1387,9 @@ class InGameUI:
                     return self.actionmerge
                 if self._frontline_rect.collidepoint(pos):
                     return self.actionfrontline
+                divisionentry = self._get_selected_division_entry()
+                if self._auto_advance_rect.collidepoint(pos) and divisionentry:
+                    return (self.actionautoadvance, divisionentry.get("divisionid"))
 
             return None
        
@@ -1306,6 +1544,8 @@ class InGameUI:
         max_right = self.topbar.rect.right - 12
         stats_x, _ = self._draw_country_chip(surface, stats_x, stats_y, country_text, flag_img, max_right)
 
+        self._topbar_metric_rects = {}
+        self._topbar_metric_data = {}
         chip_data = (
             ("gold", "Gold", self._format_number(self.playergold), (177, 145, 70)),
             ("turn", "Turn", str(int(self.currentturnnumber)), (130, 138, 146)),
@@ -1326,6 +1566,8 @@ class InGameUI:
                 value_text,
                 max_right,
                 accent=accent,
+                metric_key=icon_key,
+                mouse=mouse,
             )
             if not did_draw:
                 break
@@ -1436,18 +1678,21 @@ class InGameUI:
 
         if self.focusview.isopen:
             self.focusview.draw(surface, self.title_font, self.font, mouse)
+            self._draw_topbar_metric_popup(surface, mouse)
             if self.pausemenuopen:
                 self._draw_pausemenu(surface)
             return
 
         if self.researchview.isopen:
             self.researchview.draw(surface, self.title_font, self.font, mouse)
+            self._draw_topbar_metric_popup(surface, mouse)
             if self.pausemenuopen:
                 self._draw_pausemenu(surface)
             return
 
         selected_tab = self.bottom_buttons.selected
         if not self.rightbar.rect.width:
+            self._draw_topbar_metric_popup(surface, mouse)
             if self.pausemenuopen:
                 self._draw_pausemenu(surface)
             return
@@ -1553,7 +1798,7 @@ class InGameUI:
             )
 
         
-        elif selected_tab == "RECRUIT":
+        elif selected_tab == "TROOPS":
            
             self._recruit_action_rect.topleft = (content_rect.x, self._split_rect.y - 44)
             recruit_label = f"RECRUIT +{int(self.recruitamount)}"
@@ -1563,9 +1808,6 @@ class InGameUI:
             )
             y_cursor = max(y_cursor, content_rect.y + 24)
 
-
-
-
         elif selected_tab == "PRODUCTION" and not self._countrymenutarget:
             self._production_blank_rect.topleft = (content_rect.x, content_rect.y + 40)
             self._draw_glow_btn(
@@ -1574,52 +1816,138 @@ class InGameUI:
             )
             y_cursor += 100
 
-        # Troop info + decision buttons only show in RECRUIT tab, and only when troops > 0
-        if selected_tab == "RECRUIT" and not self._countrymenutarget and self.active_left_tab != "COMBAT" and not self._selectedmapcountry:
+        # Troop info + decision buttons only show in TROOPS tab, and only when troops > 0
+        if selected_tab == "TROOPS" and not self._countrymenutarget and self.active_left_tab != "COMBAT" and not self._selectedmapcountry:
+            self._detach_regiment_rects = {}
             selected = [e for e in (self._selectedtroopentries or []) if isinstance(e, dict)]
             totaltroops = sum(max(0, int(e.get("troops", 0))) for e in selected)
             if totaltroops > 0:
                 header_y = content_rect.y + 60
-                surface.blit(self.font.render("Selected Troops", True, (240, 240, 240)), (content_rect.x, header_y))
-                summary = self.font.render(
-                    f"{len(selected)} province{'s' if len(selected) != 1 else ''}  |  Total: {totaltroops}",
-                    True, (210, 210, 210),
-                )
-                surface.blit(summary, (content_rect.x, header_y + 22))
+                divisionentry = self._get_selected_division_entry()
+                divisionname = divisionentry.get("divisionname") if divisionentry else None
+                divisionautoadvance = bool(divisionentry.get("divisionautoadvance", False)) if divisionentry else False
 
-                list_top = header_y + 46
+                icon = self._topbar_icons.get("manpower")
+                if icon is not None:
+                    surface.blit(icon, (content_rect.x, header_y - 2))
+                    title_x = content_rect.x + icon.get_width() + 8
+                else:
+                    title_x = content_rect.x
+                surface.blit(self.font_bold.render("Selected Regiments", True, _C_TEXT), (title_x, header_y))
+
+                chip_gap = 8
+                chip_w = (content_rect.width - chip_gap) // 2
+                chip_y = header_y + 28
+                self._draw_metric_chip(
+                    surface,
+                    pygame.Rect(content_rect.x, chip_y, chip_w, 48),
+                    "Regiments",
+                    str(len(selected)),
+                    icon_key="combat",
+                    accent=_C_INFO,
+                )
+                self._draw_metric_chip(
+                    surface,
+                    pygame.Rect(content_rect.x + chip_w + chip_gap, chip_y, chip_w, 48),
+                    "Troops",
+                    self._format_number(totaltroops),
+                    icon_key="manpower",
+                    accent=_C_SUCCESS,
+                )
+
+                division_y = chip_y + 58
+                if divisionname:
+                    division_rect = pygame.Rect(content_rect.x, division_y, content_rect.width, 44)
+                    self._draw_vertical_gradient_rect(surface, division_rect, (26, 35, 52), (13, 20, 33), radius=6)
+                    pygame.draw.rect(surface, (61, 75, 96), division_rect, 1, border_radius=6)
+                    div_icon = self._topbar_icons.get("logistics")
+                    div_x = division_rect.x + 10
+                    if div_icon is not None:
+                        surface.blit(div_icon, (div_x, division_rect.centery - div_icon.get_height() // 2))
+                        div_x += div_icon.get_width() + 8
+                    surface.blit(self.small_font.render("DIVISION", True, _C_TEXT_MUTED), (div_x, division_rect.y + 7))
+                    surface.blit(self.font_bold.render(str(divisionname), True, _C_TEXT), (div_x, division_rect.y + 22))
+                    status_text = "ADVANCE" if divisionautoadvance else "HOLD"
+                    status_color = _C_SUCCESS if divisionautoadvance else _C_GOLD_BRIGHT
+                    status_surface = self.small_font_bold.render(status_text, True, status_color)
+                    surface.blit(
+                        status_surface,
+                        (
+                            division_rect.right - status_surface.get_width() - 10,
+                            division_rect.centery - status_surface.get_height() // 2,
+                        ),
+                    )
+                    list_top = division_rect.bottom + 10
+                else:
+                    list_top = chip_y + 60
+
                 list_bottom = min(self._recruit_action_rect.y, self._split_rect.y) - 10
-                maxrows = max(0, (list_bottom - list_top) // 22)
-                maxrows = min(10, maxrows)
+                maxrows = max(0, (list_bottom - list_top) // 48)
+                maxrows = min(7, maxrows)
 
                 col_x = content_rect.x
-                row_h = 20
+                row_h = 44
                 for i in range(maxrows):
                     if i >= len(selected):
                         break
-                    if i % 2 == 1:
-                        pygame.draw.rect(surface, (24, 24, 24),
-                            (col_x, list_top + i * (row_h + 2), content_rect.width, row_h),
-                            border_radius=2)
+                    row_rect = pygame.Rect(col_x, list_top + i * (row_h + 4), content_rect.width, row_h)
+                    row_top = (23, 33, 50) if i % 2 == 0 else (18, 27, 42)
+                    self._draw_vertical_gradient_rect(surface, row_rect, row_top, (10, 16, 27), radius=6)
+                    pygame.draw.rect(surface, (43, 56, 73), row_rect, 1, border_radius=6)
+                    pygame.draw.line(surface, _C_INFO, (row_rect.x + 5, row_rect.y + 8), (row_rect.x + 5, row_rect.bottom - 8), 2)
+
                     prov = selected[i].get("provinceid", "unknown")
                     troops = int(selected[i].get("troops", 0))
-                    troop_str = self.font.render(f"{troops:,}", True, (200, 220, 200))
-                    prov_str = self.font.render(prov, True, (210, 210, 210))
-                    surface.blit(prov_str, (col_x, list_top + i * (row_h + 2)))
+                    regiment_label = selected[i].get("regimentname") or f"Regiment {i + 1}"
+                    label_x = row_rect.x + 16
+                    label_y = row_rect.y + 6
+                    regiment_surface = self.font_bold.render(str(regiment_label), True, _C_TEXT)
+                    surface.blit(regiment_surface, (label_x, label_y))
+
+                    rowdivisionid = selected[i].get("divisionid")
+                    if rowdivisionid:
+                        detachrect = pygame.Rect(label_x + regiment_surface.get_width() + 8, label_y - 1, 18, 18)
+                        self._detach_regiment_rects[str(prov)] = detachrect
+                        pygame.draw.rect(surface, _C_DANGER, detachrect, border_radius=4)
+                        pygame.draw.line(surface, (255, 235, 235), (detachrect.x + 5, detachrect.y + 5), (detachrect.right - 5, detachrect.bottom - 5), 2)
+                        pygame.draw.line(surface, (255, 235, 235), (detachrect.right - 5, detachrect.y + 5), (detachrect.x + 5, detachrect.bottom - 5), 2)
+
+                    prov_str = self.small_font.render(str(prov), True, _C_TEXT_MUTED)
+                    surface.blit(prov_str, (label_x, row_rect.y + 25))
+
+                    troop_str = self.font_bold.render(f"{troops:,}", True, (200, 232, 204))
                     surface.blit(troop_str,
-                        (content_rect.right - troop_str.get_width(), list_top + i * (row_h + 2)))
+                        (content_rect.right - troop_str.get_width() - 8, row_rect.y + 8))
+                    troop_label = self.small_font.render("troops", True, _C_TEXT_MUTED)
+                    surface.blit(troop_label, (content_rect.right - troop_label.get_width() - 8, row_rect.y + 26))
 
                 if len(selected) > maxrows and maxrows > 0:
                     overflow = len(selected) - maxrows
                     surface.blit(self.font.render(f"... +{overflow} more", True, (170, 170, 170)),
-                        (col_x, list_top + (maxrows - 1) * (row_h + 2) + row_h))
+                        (col_x, list_top + (maxrows - 1) * (row_h + 4) + row_h + 2))
 
                 split_enabled = totaltroops > 1
                 merge_enabled = len(selected) > 1
-                frontline_label = "CANCEL" if self._frontlineplacementmode else "frontline"
-                self._draw_glow_btn(surface, "split", self._split_rect, split_enabled, "split", mouse=mouse)
-                self._draw_glow_btn(surface, "merge", self._merge_rect, merge_enabled, "merge", mouse=mouse)
-                self._draw_glow_btn(surface, "frontline", self._frontline_rect, True, frontline_label, mouse=mouse)
+                hasdivision = divisionentry is not None
+                frontline_label = "Cancel" if self._frontlineplacementmode else "Line"
+                advance_label = "Auto"
+                self._draw_glow_btn(surface, "split", self._split_rect, split_enabled, "Split", mouse=mouse, icon_key="manpower")
+                self._draw_glow_btn(surface, "merge", self._merge_rect, merge_enabled, "Merge", mouse=mouse, icon_key="logistics")
+                self._draw_glow_btn(surface, "frontline", self._frontline_rect, True, frontline_label, mouse=mouse, icon_key="combat")
+                self._draw_glow_btn(
+                    surface,
+                    "autoadvance",
+                    self._auto_advance_rect,
+                    hasdivision,
+                    advance_label,
+                    primary=divisionautoadvance,
+                    mouse=mouse,
+                    icon_key="turn",
+                )
+        else:
+            self._detach_regiment_rects = {}
+
+        self._draw_topbar_metric_popup(surface, mouse)
 
         if self.warprogressopen:
             self._draw_war_progress_popup(surface, mouse)
@@ -1635,12 +1963,15 @@ class InGameUI:
         draw_x = rect.x + 18
         icon = self._topbar_icons.get(icon_key) if icon_key else None
         if icon is not None:
-            surface.blit(icon, (draw_x, rect.y + 16))
+            surface.blit(icon, (draw_x, rect.centery - icon.get_height() // 2))
             draw_x += icon.get_width() + 10
         value_surface = self.font_bold.render(str(value), True, _C_TEXT)
         label_surface = self.small_font.render(str(label), True, _C_TEXT_MUTED)
-        surface.blit(value_surface, (draw_x, rect.y + 10))
-        surface.blit(label_surface, (draw_x, rect.y + 32))
+        text_gap = 2
+        text_block_h = value_surface.get_height() + text_gap + label_surface.get_height()
+        text_y = rect.y + max(7, (rect.height - text_block_h) // 2)
+        surface.blit(value_surface, (draw_x, text_y))
+        surface.blit(label_surface, (draw_x, text_y + value_surface.get_height() + text_gap))
 
     def _draw_occupation_bar(self, surface, rect, label, percent, count_text, fill_color):
         percent = max(0.0, min(100.0, float(percent or 0.0)))
@@ -1873,7 +2204,7 @@ class InGameUI:
             accent=_C_DANGER,
         )
 
-    def _draw_glow_btn(self, surface, key, rect, enabled, label, primary=False, mouse=None):
+    def _draw_glow_btn(self, surface, key, rect, enabled, label, primary=False, mouse=None, icon_key=None):
         if mouse is None:
             mouse = pygame.mouse.get_pos()
         hovered = rect.collidepoint(mouse) and enabled
@@ -1923,7 +2254,15 @@ class InGameUI:
             text_color = _C_TEXT if enabled else _C_TEXT_MUTED
             fnt = self.font
         txt = fnt.render(label, True, text_color)
-        surface.blit(txt, txt.get_rect(center=rect.center))
+        icon = self._topbar_icons.get(icon_key) if icon_key else None
+        if icon is not None and rect.width >= 80:
+            gap = 6
+            total_width = icon.get_width() + gap + txt.get_width()
+            start_x = rect.centerx - total_width // 2
+            surface.blit(icon, (start_x, rect.centery - icon.get_height() // 2))
+            surface.blit(txt, (start_x + icon.get_width() + gap, rect.centery - txt.get_height() // 2))
+        else:
+            surface.blit(txt, txt.get_rect(center=rect.center))
 
     def _draw_pausemenu(self, surface: pygame.Surface):
         overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)

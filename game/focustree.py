@@ -14,6 +14,7 @@ class Focus:
     mutuallyexclusive: tuple[str, ...] = ()
     effects: tuple[Mapping[str, Any], ...] = ()
     icon: str = ""
+    image: str = ""
     x: int = 0
     y: int = 0
 
@@ -32,6 +33,7 @@ class Focus:
         )
         effects = tuple(dict(effect) for effect in data.get("effects", ()) if isinstance(effect, Mapping))
         icon = str(data.get("icon", "")).strip()
+        image = str(data.get("image", "")).strip()
 
         position = data.get("position", {})
         if isinstance(position, Mapping):
@@ -50,6 +52,7 @@ class Focus:
             mutuallyexclusive=mutuallyexclusive,
             effects=effects,
             icon=icon,
+            image=image,
             x=int(data.get("x", defaultx) or 0),
             y=int(data.get("y", defaulty) or 0),
         )
@@ -79,11 +82,13 @@ class FocusTree:
         country: str | None,
         name: str,
         focuses,
+        cover_image: str = "",
         effectregistry: FocusEffectRegistry | None = None,
     ):
         self.treeid = str(treeid or "focus_tree")
         self.country = country
         self.name = str(name or self.treeid)
+        self.cover_image = str(cover_image or "")
         self.focuses: dict[str, Focus] = {focus.id: focus for focus in focuses}
         self.completedids: set[str] = set()
         self.activeid: str | None = None
@@ -259,6 +264,7 @@ class FocusTree:
                     "mutuallyexclusive": list(self.exclusives.get(focus.id, ())),
                     "effects": [dict(effect) for effect in focus.effects],
                     "icon": focus.icon,
+                    "image": focus.image,
                     "x": focus.x,
                     "y": focus.y,
                     "status": status,
@@ -272,6 +278,7 @@ class FocusTree:
             "id": self.treeid,
             "country": self.country,
             "name": self.name,
+            "cover_image": self.cover_image,
             "focuses": focusviews,
             "activefocusid": self.activeid,
             "activefocustitle": activefocus.title if activefocus else "",

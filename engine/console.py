@@ -219,6 +219,7 @@ def rundevcommand(
         provincemap[provinceid]["controllercountry"] = playercountry
         provincemap[provinceid]["country"] = playercountry
         provincemap[provinceid]["countrycolor"] = countrytocolor.get(playercountry, fallbackcolor)
+        setsessionvalue("mapdirty", True)
         return f"ok annexed {provinceid} to {playercountry}"
 
 
@@ -268,6 +269,7 @@ def rundevcommand(
         
 
         provincemap[provinceid]["ownercountry"] = newowner
+        setsessionvalue("mapdirty", True)
 
 
         return f"ok {provinceid} owner={newowner}"
@@ -287,6 +289,7 @@ def rundevcommand(
         provincemap[provinceid]["controllercountry"] = newcontroller
         provincemap[provinceid]["country"] = newcontroller
         provincemap[provinceid]["countrycolor"] = countrytocolor.get(newcontroller, fallbackcolor)
+        setsessionvalue("mapdirty", True)
 
 
         return f"ok {provinceid} controller={newcontroller}"
@@ -353,21 +356,21 @@ def rundevcommand(
         rawtargetcountry = " ".join(commandparts[1:]).strip() if len(commandparts) >= 2 else ""
 
         if not rawtargetcountry:
-            countrystatlist = []
-            knowncountryset = set()
+            countrystatslookup = {}
             for province in provincemap.values():
                 owner = getowner(province)
                 controller = getcontroller(province)
                 if owner:
-                    knowncountryset.add(owner)
+                    countrystatslookup.setdefault(owner, [0, 0, 0])[0] += 1
                 if controller:
-                    knowncountryset.add(controller)
+                    controllerstats = countrystatslookup.setdefault(controller, [0, 0, 0])
+                    controllerstats[1] += 1
+                    controllerstats[2] += max(0, int(province.get("troops", 0)))
 
-            for countryname in sorted(knowncountryset):
-                owned = [p for p in provincemap.values() if getowner(p) == countryname]
-                controlled = [p for p in provincemap.values() if getcontroller(p) == countryname]
-                controlledtroops = sum(max(0, int(p.get("troops", 0))) for p in controlled)
-                countrystatlist.append((countryname, len(owned), len(controlled), controlledtroops))
+            countrystatlist = [
+                (countryname, stats[0], stats[1], stats[2])
+                for countryname, stats in countrystatslookup.items()
+            ]
 
             if not countrystatlist:
                 return "no countries"
@@ -387,12 +390,18 @@ def rundevcommand(
         if targetcountry is None:
             return f"unknown country: {rawtargetcountry}"
 
-        owned = [p for p in provincemap.values() if getowner(p) == targetcountry]
-        controlled = [p for p in provincemap.values() if getcontroller(p) == targetcountry]
-        controlledtroops = sum(max(0, int(p.get("troops", 0))) for p in controlled)
+        ownedcount = 0
+        controlledcount = 0
+        controlledtroops = 0
+        for province in provincemap.values():
+            if getowner(province) == targetcountry:
+                ownedcount += 1
+            if getcontroller(province) == targetcountry:
+                controlledcount += 1
+                controlledtroops += max(0, int(province.get("troops", 0)))
 
         return (
-            f"{targetcountry} | owned={len(owned)} controlled={len(controlled)} controlled_troops={controlledtroops}"
+            f"{targetcountry} | owned={ownedcount} controlled={controlledcount} controlled_troops={controlledtroops}"
         )
 
 
@@ -574,6 +583,8 @@ def rundevcommand(
                 province["country"] = targetcountry
                 province["countrycolor"] = countrytocolor.get(targetcountry, fallbackcolor)
                 changedcontrollercount += 1
+        if changedownercount or changedcontrollercount:
+            setsessionvalue("mapdirty", True)
 
         npcdirector = getsessionvalue("npcdirector")
         if npcdirector is not None:
@@ -951,20 +962,7 @@ class developmentconsole:
         self.collectairesponses()
 
         windowwidth, windowheight = screen.get_size()
-        self.buttonrectangle = pygame.Rect(windowwidth - 132, 10, 122, 30)
-
-        currentfps = clock.get_fps()
-        self.drawbutton(
-            screen,
-            self.buttonrectangle,
-            f"{text} {currentfps:.1f} FPS",
-            smallfontobject,
-            enabled=True,
-            pulse=self.visible,
-        )
-
-
-
+        self.buttonrectangle = None
 
         if not self.visible:
             self.panelrectangle = None
@@ -1045,10 +1043,6 @@ class developmentconsole:
         if not self.enabled:
             return False
 
-        if self.buttonrectangle and self.buttonrectangle.collidepoint(mouseposition):
-            self.visible = not self.visible
-            return True
-
         if self.visible:
             if self.closerectangle and self.closerectangle.collidepoint(mouseposition):
                 self.visible = False
@@ -1069,6 +1063,13 @@ class developmentconsole:
         currentturnnumber=0,
         commandcontext=None,
     ):
+        if not self.enabled:
+            return False
+
+        if keyboardevent.key == pygame.K_BACKQUOTE or getattr(keyboardevent, "unicode", "") == "`":
+            self.visible = not self.visible
+            return True
+
         if not self.visible:
             return False
 

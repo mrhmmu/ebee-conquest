@@ -70,6 +70,7 @@ class EbeeEngine:
         self.scripteconomy = {}
         self.selectedcountry = None
         self.selectedprovinceid = None
+        self._countryaliaslookup = None
 
 
     def on(self, eventname, callback):
@@ -161,6 +162,38 @@ class EbeeEngine:
     def emit(self, eventname, payload):
 
         self.eventbus.emit(eventname, payload)
+
+
+    def _invalidatecountrylookup(self):
+        self._countryaliaslookup = None
+
+
+    def _getcountryaliaslookup(self):
+        if self._countryaliaslookup is not None:
+            return self._countryaliaslookup
+
+        aliaslookup = {}
+
+        def addcountryalias(countryname):
+            if not countryname:
+                return
+            countrytext = str(countryname).strip()
+            if not countrytext:
+                return
+            lowerknown = countrytext.lower()
+            if lowerknown not in aliaslookup:
+                aliaslookup[lowerknown] = countrytext
+
+        for countryname in self.countrytocolorlookup.keys():
+            addcountryalias(countryname)
+        for countryname in self.statetocountrylookup.values():
+            addcountryalias(countryname)
+        for province in self.provincemap.values():
+            for key in ("ownercountry", "controllercountry", "country"):
+                addcountryalias(province.get(key))
+
+        self._countryaliaslookup = aliaslookup
+        return aliaslookup
 
 
 
@@ -271,6 +304,8 @@ class EbeeEngine:
             stateshape["subdivisions"] = subdivisionsforstate
 
 
+        self._invalidatecountrylookup()
+
         self.emit(
             EngineEventType.WORLDLOADED, # summary
             {
@@ -279,7 +314,6 @@ class EbeeEngine:
                 "edgeCount": sum(len(neighborset) for neighborset in self.provincegraph.values()) // 2,
             },
         )
-
 
         return True
 
@@ -357,6 +391,7 @@ class EbeeEngine:
 
         countrycolor = self.countrytocolorlookup.get(country, province.get("countrycolor", (85, 85, 85)))
         movement.setprovincecontroller(province, country, countrycolor)
+        self._invalidatecountrylookup()
         return self.getprovincedetails(province.get("id"))
 
     def set_province_owner(self, province_id, countryname):
@@ -367,6 +402,7 @@ class EbeeEngine:
 
         province["ownercountry"] = country
         province["ownerCountry"] = country
+        self._invalidatecountrylookup()
         return self.getprovincedetails(province.get("id"))
 
     def get_selected_country(self):
@@ -546,19 +582,10 @@ class EbeeEngine:
         if not countrytext:
             return None
 
-        aliaslookup = {}
-        for province in self.provincemap.values():
-            for key in ("ownercountry", "controllercountry", "country"):
-                knowncountry = province.get(key)
-                if not knowncountry:
-                    continue
-                knowntext = str(knowncountry).strip()
-                if not knowntext:
-                    continue
-                lowerknown = knowntext.lower()
-                if lowerknown not in aliaslookup:
-                    aliaslookup[lowerknown] = knowntext
-
+        aliaslookup = self._getcountryaliaslookup()
+        if countrytext.lower() not in aliaslookup:
+            self._invalidatecountrylookup()
+            aliaslookup = self._getcountryaliaslookup()
         return aliaslookup.get(countrytext.lower(), countrytext)
 
     def _rebuildplayerwarset(self):
@@ -585,36 +612,40 @@ class EbeeEngine:
         if not countryname or not self.provincemap:
             return {}
 
-        ownedprovinces = [province for province in self.provincemap.values() if movement.getprovinceowner(province) == countryname]
-        controlledprovinces = [province for province in self.provincemap.values() if movement.getprovincecontroller(province) == countryname]
-        totaltroopscontrolled = sum(int(province.get("troops", 0)) for province in controlledprovinces)
+        ownedprovinceids = []
+        controlledprovinceids = []
+        ownedstateids = set()
+        controlledstateids = set()
+        totaltroopscontrolled = 0
 
-        stateidsowned = sorted(
-            {
-                province.get("parentstateid")
-                for province in ownedprovinces
-                if province.get("parentstateid") is not None
-            }
-        )
-        stateidscontrolled = sorted(
-            {
-                province.get("parentstateid")
-                for province in controlledprovinces
-                if province.get("parentstateid") is not None
-            }
-        )
+        for province in self.provincemap.values():
+            provinceid = province.get("id")
+            parentstateid = province.get("parentstateid")
+
+            if movement.getprovinceowner(province) == countryname:
+                if provinceid:
+                    ownedprovinceids.append(provinceid)
+                if parentstateid is not None:
+                    ownedstateids.add(parentstateid)
+
+            if movement.getprovincecontroller(province) == countryname:
+                if provinceid:
+                    controlledprovinceids.append(provinceid)
+                if parentstateid is not None:
+                    controlledstateids.add(parentstateid)
+                totaltroopscontrolled += int(province.get("troops", 0))
 
         return {
             "country": countryname,
-            "ownedProvinceCount": len(ownedprovinces),
-            "controlledProvinceCount": len(controlledprovinces),
+            "ownedProvinceCount": len(ownedprovinceids),
+            "controlledProvinceCount": len(controlledprovinceids),
             "controlledTroops": totaltroopscontrolled,
             "gold": self.getgold(countryname),
             "population": self.getpopulation(countryname),
-            "ownedProvinceIds": sorted(province["id"] for province in ownedprovinces),
-            "controlledProvinceIds": sorted(province["id"] for province in controlledprovinces),
-            "ownedStateIds": stateidsowned,
-            "controlledStateIds": stateidscontrolled,
+            "ownedProvinceIds": sorted(ownedprovinceids),
+            "controlledProvinceIds": sorted(controlledprovinceids),
+            "ownedStateIds": sorted(ownedstateids),
+            "controlledStateIds": sorted(controlledstateids),
             "atWarWith": sorted(self.countriesatwarset),
             "turn": self.currentturnnumber,
         }
