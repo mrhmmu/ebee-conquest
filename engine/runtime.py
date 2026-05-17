@@ -2903,6 +2903,17 @@ def main(eventbus=None, is_fullscreen=False):
                         researching_node_id = None
                 frontlineupdates = refreshfrontlines()
                 currentturnnumber += 1
+                
+                if currentturnnumber in COVID_NEWS_EVENTS:
+                    news = COVID_NEWS_EVENTS[currentturnnumber]
+
+                    newssystem.pushnews(
+                        title=news["title"],
+                        description=news["description"],
+                        imagekey="placeholder",
+                        priority=3,
+                    )
+                                      
                 routepreviewset = frontlineupdates
                 updatescriptengine()
                 eventbus.emit(
