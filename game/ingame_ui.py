@@ -399,6 +399,7 @@ class InGameUI:
         self._notificationcount = 0
         self._startdate = date(2020, 1, 1)
         self._daysperturn = 5
+        
 
         # rolling FPS history for status graph (42 samples)
         self._fps_history: list[float] = [0.0] * 42
@@ -441,6 +442,17 @@ class InGameUI:
         self._warprogress_dragging = False
         self._warprogress_drag_offset = (0, 0)
         self._warprogress_active_index = 0
+        self.production_popup_open = False
+        self._production_popup_back_rect = pygame.Rect(0, 0, 10,10)
+        self._production_selection_rects = [pygame.Rect(0, 0, 10,10) for _ in range(4)]
+        self.production_selected = None
+        self._recruit_action_rect = pygame.Rect(0, 0, 10, 10)
+        self._declarewar_rect = pygame.Rect(0, 0, 10, 10)
+        self._split_rect = pygame.Rect(0, 0, 10, 10)
+        self._merge_rect = pygame.Rect(0, 0, 10, 10)
+        self._frontline_rect = pygame.Rect(0, 0, 10, 10)
+        self._production_blank_rect = pygame.Rect(0, 0, 10, 10)
+        self._research_btn_rects = [pygame.Rect(0, 0, 10, 10) for _ in range(4)]
 
         self.leftbar = LeftBar(pygame.Rect(0, 0, 10, 10))
         self.bottom_buttons = BottomButtons(pygame.Rect(0, 0, 10, 10))
@@ -953,6 +965,7 @@ class InGameUI:
             show_bottom = True
             show_right = bool(
                 self._countrymenutarget
+                or self.bottom_buttons.selected == "PRODUCTION"
                 or self.bottom_buttons.selected == "TROOPS"
                 or self.active_left_tab == "COMBAT"
                 or self._selectedmapcountry
@@ -998,6 +1011,7 @@ class InGameUI:
         content_w = max(1, self.rightbar.rect.width - 24)
         self._recruit_action_rect = pygame.Rect(content_x, content_y + 40, content_w, 34)
         self._declarewar_rect = pygame.Rect(content_x, content_y + 82, content_w, 34)
+        self._production_blank_rect = pygame.Rect(content_x, content_y + 40, content_w, 90)
 
         # troop decision buttons at the bottom of right panel
         btn_w = max(1, (content_w - 30) // 4)
@@ -1037,6 +1051,9 @@ class InGameUI:
         self._pausequit_rect = pygame.Rect(menu_x + (menu_w - 150) // 2, menu_y + menu_h - 52, 150, 40)
         self._war_progress_rect = pygame.Rect(content_x, content_y + 40, content_w, 34)
 
+
+
+        
 
     def select_map_country(self, country_name: str | None):
         self._selectedmapcountry = country_name
@@ -1175,6 +1192,23 @@ class InGameUI:
                 return None
             self.pausemenuopen = not self.pausemenuopen
             return self.actionpausemenu
+        
+        if self.production_popup_open:
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.production_popup_open = False
+                return None
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self._production_popup_back_rect.collidepoint(event.pos):
+                    self.production_popup_open = False
+                    return None
+                
+                for i in range(4):
+                    if self._production_selection_rects[i].collidepoint(event.pos):
+                        self.production_selected = i + 1
+                        return None
+                
+                self.production_popup_open = False
+                return None
 
         if self.warprogressopen:
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -1300,6 +1334,11 @@ class InGameUI:
             return self.actionendturn
 
         selected_tab = self.bottom_buttons.selected
+
+        if selected_tab == "PRODUCTION" and not self._countrymenutarget:
+            if self._production_blank_rect.collidepoint(pos):
+                self.production_popup_open = True
+                return None
 
         if selected_tab == "RESEARCH" and not self._countrymenutarget:
 
@@ -1604,6 +1643,39 @@ class InGameUI:
                 surface.blit(ts, (rect.x + padding, ty))
                 ty += ts.get_height()
 
+
+
+        if self.production_popup_open:
+            overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 120))
+            surface.blit(overlay, (0, 0))
+            popup_rect = pygame.Rect(0, 0, 600, 400)
+            popup_rect.center = surface.get_rect().center
+            self._draw_glass_panel(surface, popup_rect, radius=8, border=(72, 86, 108), glow=True)
+            title = self.title_font.render("PRODUCTION", True, _C_GOLD_BRIGHT)
+            surface.blit(title, title.get_rect(center=(popup_rect.centerx, popup_rect.y + 40)))
+
+            btn_w, btn_h = 160, 50
+            btn_gap_x, btn_gap_y = 20, 15
+            start_x = popup_rect.centerx - btn_w - btn_gap_x // 2
+            start_y = popup_rect.y + 90
+
+            for i in range(4):
+                col = i % 2
+                row = i // 2
+                x = start_x + col * (btn_w + btn_gap_x)
+                y = start_y + row * (btn_h + btn_gap_y)
+                self._production_selection_rects[i] = pygame.Rect(x, y, btn_w, btn_h)
+                selected = self.production_selected == (i + 1)
+                label = f"selection {i + 1}"
+                self._draw_glow_btn(surface, f"prod_sel_{i}", self._production_selection_rects[i], True, label, primary=selected, mouse=mouse)
+
+            back_w, back_h = 140, 40
+            self._production_popup_back_rect = pygame.Rect(0, 0, back_w, back_h)
+            self._production_popup_back_rect.centerx = popup_rect.centerx
+            self._production_popup_back_rect.y = popup_rect.bottom - back_h - 20
+            self._draw_glow_btn(surface, "prod_back", self._production_popup_back_rect, True, "BACK", mouse=mouse)
+
         if self.focusview.isopen:
             self.focusview.draw(surface, self.title_font, self.font, mouse)
             self._draw_topbar_metric_popup(surface, mouse)
@@ -1735,6 +1807,14 @@ class InGameUI:
                 self.recruitenabled, recruit_label, primary=True, mouse=mouse,
             )
             y_cursor = max(y_cursor, content_rect.y + 24)
+
+        elif selected_tab == "PRODUCTION" and not self._countrymenutarget:
+            self._production_blank_rect.topleft = (content_rect.x, content_rect.y + 40)
+            self._draw_glow_btn(
+                surface, "production_blank", self._production_blank_rect,
+                True, "     +      ", mouse=mouse,
+            )
+            y_cursor += 100
 
         # Troop info + decision buttons only show in TROOPS tab, and only when troops > 0
         if selected_tab == "TROOPS" and not self._countrymenutarget and self.active_left_tab != "COMBAT" and not self._selectedmapcountry:
@@ -2120,7 +2200,7 @@ class InGameUI:
             pygame.Rect(content_x + (chip_w + chip_gap) * 2, chip_y, chip_w, 50),
             "Total casualties",
             self._format_number(total_casualties),
-            icon_key="combat",
+            icon_key="COMBAT",
             accent=_C_DANGER,
         )
 
