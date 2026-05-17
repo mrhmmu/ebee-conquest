@@ -3249,6 +3249,10 @@ def main(eventbus=None, is_fullscreen=False):
                     continue
 
                 routepreviewset = set()
+                
+                if sourceprovinceidlist:
+                    move_sound.play()
+                    
                 for sourceprovinceid in sourceprovinceidlist:
                     if sourceprovinceid == hoveredprovinceid:
                         continue
