@@ -2908,7 +2908,6 @@ def main(eventbus=None, is_fullscreen=False):
                 currentturnnumber += 1
                 
                 if currentturnnumber in COVID_NEWS_EVENTS:
-                    mahathir_speech.play()
                     news = COVID_NEWS_EVENTS[currentturnnumber]
 
                     newssystem.pushnews(
@@ -2917,6 +2916,9 @@ def main(eventbus=None, is_fullscreen=False):
                         imagekey="placeholder",
                         priority=3,
                     )
+                
+                if currentturnnumber == 2 and playercountry.lower() == "malaysia":
+                    mahathir_speech.play()
                                       
                 routepreviewset = frontlineupdates
                 updatescriptengine()
