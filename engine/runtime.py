@@ -3031,6 +3031,9 @@ def main(eventbus=None, is_fullscreen=False):
                     selectedprovinceidset = set(selectedids)
 
                     if selectedids:
+                        if selectedprovinceid != selectedids[0]:
+                            select_sound.play()
+                            
                         selectedprovinceid = selectedids[0]
                         selectedprovince = provincemap.get(selectedprovinceid)
                         expandedstateid = selectedprovince.get("parentid") if selectedprovince else expandedstateid
