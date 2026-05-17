@@ -10,7 +10,7 @@ import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
 LEADERS = {
-    "Malaysia": "Anwar Ibrahim",
+    "Malaysia": "Mahathir Mohamad",
     "Singapore": "Lawrence Wong",
     "Indonesia": "Prabowo Subianto",
     "Thailand": "Srettha Thavisin",

@@ -256,11 +256,14 @@ class FocusTreeView:
             return
 
         bannerrect = pygame.Rect(0, 0, viewrect.width, self.headerheight)
-        self.drawcroppedimage(surface, cover, bannerrect)
+        bannerimage = pygame.Surface(bannerrect.size, pygame.SRCALPHA)
+        self.drawcroppedimage(bannerimage, cover, bannerimage.get_rect())
+        bannerimage.set_alpha(51)
+        surface.blit(bannerimage, bannerrect.topleft)
         overlay = pygame.Surface(bannerrect.size, pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 60))
-        pygame.draw.rect(overlay, (0, 0, 0, 112), pygame.Rect(0, 0, min(520, bannerrect.width), bannerrect.height))
-        pygame.draw.rect(overlay, (0, 0, 0, 70), pygame.Rect(0, bannerrect.bottom - 46, bannerrect.width, 46))
+        overlay.fill((0, 0, 0, 18))
+        pygame.draw.rect(overlay, (0, 0, 0, 72), pygame.Rect(0, 0, min(520, bannerrect.width), bannerrect.height))
+        pygame.draw.rect(overlay, (0, 0, 0, 42), pygame.Rect(0, bannerrect.bottom - 46, bannerrect.width, 46))
         surface.blit(overlay, bannerrect.topleft)
         pygame.draw.line(surface, (238, 220, 165), (0, bannerrect.bottom - 1), (bannerrect.right, bannerrect.bottom - 1), 1)
 
