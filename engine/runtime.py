@@ -1229,6 +1229,11 @@ def main(eventbus=None, is_fullscreen=False):
     countrybordersegmentcache = {}
     countryborderentrylist = []
     countrybordersdirty = True
+    frontlineborderedgelistcache = []
+    frontlineborderedgesdirty = True
+    staterenderlookupcache = {}
+    staterenderlookupcachekey = None
+    staterenderlookupdirty = True
     countriesatwarset = set() # track countries at war
     warpairset = set()
     warrecordlookup = {}
@@ -1564,6 +1569,98 @@ def main(eventbus=None, is_fullscreen=False):
         countryprefix = playercountry or "frontline"
         return f"{countryprefix}_frontline_{frontlineassignmentcounter}"
 
+    def getdivisiondisplayname():
+        return f"Division {frontlineassignmentcounter}"
+
+    def getfrontlineassignment(frontlineid):
+        if not frontlineid:
+            return None
+        for assignment in frontlineassignmentlist:
+            if assignment.get("frontlineid") == frontlineid:
+                return assignment
+        return None
+
+    def getdivisiontroopcount(frontlineid):
+        if not frontlineid:
+            return 0
+        stationarytroops = sum(
+            movementmodule.getprovincefrontlinetroops(province, frontlineid)
+            for province in playableprovincemap.values()
+        )
+        movingtroops = sum(
+            max(0, int(order.get("amount", 0)))
+            for order in movementorderlist
+            if order.get("frontlineid") == frontlineid
+        )
+        return stationarytroops + movingtroops
+
+    def annotateselectedtroopentries(selectedentries):
+        assignmentlookup = {
+            assignment.get("frontlineid"): assignment
+            for assignment in frontlineassignmentlist
+            if assignment.get("frontlineid")
+        }
+        annotatedentries = []
+        for entry in selectedentries:
+            annotatedentry = dict(entry)
+            province = provincemap.get(entry.get("provinceid"))
+            annotatedentry["regimentname"] = f"Regiment {len(annotatedentries) + 1}"
+            if province:
+                frontlineassignments = province.get("frontlineassignments")
+                if isinstance(frontlineassignments, dict):
+                    assignedfrontlineids = sorted(
+                        frontlineid
+                        for frontlineid, amount in frontlineassignments.items()
+                        if max(0, int(amount)) > 0
+                    )
+                    if assignedfrontlineids:
+                        frontlineid = assignedfrontlineids[0]
+                        assignment = assignmentlookup.get(frontlineid, {})
+                        annotatedentry["divisionid"] = frontlineid
+                        annotatedentry["divisionname"] = assignment.get("divisionname") or str(frontlineid)
+                        annotatedentry["divisionautoadvance"] = bool(assignment.get("autoadvance", False))
+                        annotatedentry["frontlineassignedtroops"] = movementmodule.getprovincefrontlinetroops(
+                            province,
+                            frontlineid,
+                        )
+            annotatedentries.append(annotatedentry)
+        return annotatedentries
+
+    def detachregimentfromdivision(provinceid):
+        province = provincemap.get(provinceid)
+        if not province:
+            return False
+
+        frontlineassignments = province.get("frontlineassignments")
+        if not isinstance(frontlineassignments, dict):
+            return False
+
+        assignedfrontlineids = sorted(
+            frontlineid
+            for frontlineid, amount in frontlineassignments.items()
+            if max(0, int(amount)) > 0
+        )
+        if not assignedfrontlineids:
+            return False
+
+        frontlineid = assignedfrontlineids[0]
+        movementmodule.setprovincefrontlinetroops(province, frontlineid, 0)
+        for movementorder in movementorderlist:
+            if movementorder.get("frontlineid") != frontlineid:
+                continue
+            if movementorder.get("current") != provinceid:
+                continue
+            movementorder.pop("frontlineid", None)
+            movementorder.pop("divisionid", None)
+
+        assignment = getfrontlineassignment(frontlineid)
+        if assignment is not None and getdivisiontroopcount(frontlineid) <= 0:
+            assignment["active"] = False
+            assignment["frontlineedgekeys"] = set()
+            assignment["frontlineedges"] = []
+        syncfrontlineoverlays()
+        return True
+
     def syncfrontlineoverlays():
         nonlocal frontlineassignmentlist, activefrontlineedgekeyset
         frontlineassignmentlist = [
@@ -1574,7 +1671,19 @@ def main(eventbus=None, is_fullscreen=False):
         for assignment in frontlineassignmentlist:
             activefrontlineedgekeyset.update(assignment.get("frontlineedgekeys", ()))
 
-    def refreshfrontlines():
+    def haspendingautoadvanceorder(frontlineid):
+        if not frontlineid:
+            return False
+        for movementorder in movementorderlist:
+            if movementorder.get("frontlineid") != frontlineid:
+                continue
+            if not movementorder.get("autoadvance"):
+                continue
+            if movementorder.get("ordercreatedturn") == currentturnnumber:
+                return True
+        return False
+
+    def refreshfrontlines(allowautoadvance=True):
         nonlocal frontlineassignmentlist, activefrontlineedgekeyset
         if not playercountry or not frontlineassignmentlist:
             frontlineassignmentlist = []
@@ -1604,6 +1713,21 @@ def main(eventbus=None, is_fullscreen=False):
             )
             routeupdateset.update(refreshresult.get("routepreviewset", ()))
             if assignment.get("active", True):
+                frontlineid = assignment.get("frontlineid")
+                if (
+                    allowautoadvance
+                    and assignment.get("autoadvance", False)
+                    and not haspendingautoadvanceorder(frontlineid)
+                ):
+                    advanceresult = movementmodule.autoadvancefrontlineassignment(
+                        assignment,
+                        playableprovincemap,
+                        movementorderlist,
+                        emit=eventbus.emit,
+                        currentturnnumber=currentturnnumber,
+                        hostilecountryset=countriesatwarset,
+                    )
+                    routeupdateset.update(advanceresult.get("routepreviewset", ()))
                 refreshedassignments.append(assignment)
 
         frontlineassignmentlist = refreshedassignments
@@ -1961,6 +2085,9 @@ def main(eventbus=None, is_fullscreen=False):
         if "gamephase" in commandstate:
             gamephase = commandstate.get("gamephase", gamephase)
 
+        if commandstate.get("mapdirty"):
+            countrybordersdirty = True
+
         if playercountry and not playercountrychanged:
             npcdirector.sync_player_wars(playercountry, countriesatwarset, warpairset=warpairset)
 
@@ -2179,12 +2306,19 @@ def main(eventbus=None, is_fullscreen=False):
                     drawcamerax = camerax + copyshift
                     blitblackworldslice(screen, blackedoutworldsurface, mapbox, zoomvalue, drawcamerax, cameray)
 
-        staterenderlookup = buildstaterenderlookup(
-            playablestateshapelist,
-            expandedstateid,
-            gamephase,
-            defaultshapecolor,
-        )
+        if countrybordersdirty:
+            staterenderlookupdirty = True
+        currentstaterenderkey = (expandedstateid, gamephase)
+        if staterenderlookupdirty or staterenderlookupcachekey != currentstaterenderkey:
+            staterenderlookupcache = buildstaterenderlookup(
+                playablestateshapelist,
+                expandedstateid,
+                gamephase,
+                defaultshapecolor,
+            )
+            staterenderlookupcachekey = currentstaterenderkey
+            staterenderlookupdirty = False
+        staterenderlookup = staterenderlookupcache
         pendingpulsevalue = None
         if gamephase == "choosecountry" and pendingcountry:
             pendingpulsevalue = 0.35 + 0.45 * (0.5 + 0.5 * math.sin(pygame.time.get_ticks() * 0.008))
@@ -2412,6 +2546,7 @@ def main(eventbus=None, is_fullscreen=False):
                 countrybordersegmentcache,
             )
             countrybordersdirty = False
+            frontlineborderedgesdirty = True
 
         if gamephase == "play" and zoomvalue >= minimumzoomforframe * 1.08:
             gui_drawcountryborders(
@@ -2442,7 +2577,14 @@ def main(eventbus=None, is_fullscreen=False):
         frontlineedgebykey = {}
         hoveredfrontlineedgekey = None
         if gamephase == "play" and playercountry and (frontlineplacementmode or activefrontlineedgekeyset):
-            frontlineborderedgelist = getcountryborderedges(playableprovincemap, playableprovincegraph, playercountry)
+            if frontlineborderedgesdirty:
+                frontlineborderedgelistcache = getcountryborderedges(
+                    playableprovincemap,
+                    playableprovincegraph,
+                    playercountry,
+                )
+                frontlineborderedgesdirty = False
+            frontlineborderedgelist = frontlineborderedgelistcache
             frontlineedgebykey = {edge["edgekey"]: edge for edge in frontlineborderedgelist}
 
             currentfrontlineedgekeyset = set(frontlineedgebykey.keys())
@@ -2523,6 +2665,7 @@ def main(eventbus=None, is_fullscreen=False):
             provincemap,
             playercountry,
         )
+        selectedtroopentries = annotateselectedtroopentries(selectedtroopentries)
 
         canrecruit = (
             selectedprovinceid is not None
@@ -2795,6 +2938,7 @@ def main(eventbus=None, is_fullscreen=False):
             # for quick search: "end turn button"
             # ON END TURN, process movement orders, apply economy, increment turn, emit next turn event
             if uiaction == InGameUI.actionendturn and gamephase == "play":
+                frontlineupdates = refreshfrontlines(allowautoadvance=True)
                 processmovementorders(
                     movementorderlist,
                     provincemap,
@@ -2846,7 +2990,7 @@ def main(eventbus=None, is_fullscreen=False):
                             "turn": currentturnnumber,
                         })
                         researching_node_id = None
-                frontlineupdates = refreshfrontlines()
+                frontlineupdates.update(refreshfrontlines(allowautoadvance=False))
                 currentturnnumber += 1
                 routepreviewset = frontlineupdates
                 updatescriptengine()
@@ -2897,6 +3041,32 @@ def main(eventbus=None, is_fullscreen=False):
                 frontlineplacementmode = bool(hastroopsselected) and not frontlineplacementmode
                 routepreviewset = set()
                 countrymenutarget = None
+                continue
+
+            if (
+                isinstance(uiaction, tuple)
+                and len(uiaction) == 2
+                and uiaction[0] == InGameUI.actionautoadvance
+                and gamephase == "play"
+            ):
+                assignment = getfrontlineassignment(uiaction[1])
+                if assignment is not None:
+                    assignment["autoadvance"] = not bool(assignment.get("autoadvance", False))
+                    if assignment["autoadvance"]:
+                        routepreviewset = refreshfrontlines(allowautoadvance=True)
+                    else:
+                        routepreviewset = set()
+                continue
+
+            if (
+                isinstance(uiaction, tuple)
+                and len(uiaction) == 2
+                and uiaction[0] == InGameUI.actiondetachregiment
+                and gamephase == "play"
+            ):
+                if detachregimentfromdivision(uiaction[1]):
+                    routepreviewset = set()
+                    frontlineplacementmode = False
                 continue
 
             if event.type == pygame.QUIT:
@@ -2965,6 +3135,9 @@ def main(eventbus=None, is_fullscreen=False):
                         )
                         if frontlineresult["success"]:
                             frontlineresult["frontlineid"] = nextfrontlineid()
+                            frontlineresult["divisionid"] = frontlineresult["frontlineid"]
+                            frontlineresult["divisionname"] = getdivisiondisplayname()
+                            frontlineresult["autoadvance"] = False
                             movementmodule.registerfrontlineassignment(
                                 playableprovincemap,
                                 frontlineresult["frontlineid"],
@@ -3307,6 +3480,7 @@ def main(eventbus=None, is_fullscreen=False):
             elif event.type == pygame.KEYDOWN:
                 # Space = next turn (only in play phase, and not while dev console is capturing input)
                 if event.key == pygame.K_SPACE and gamephase == "play" and not devconsole.visible:
+                    frontlineupdates = refreshfrontlines(allowautoadvance=True)
                     processmovementorders(
                         movementorderlist,
                         provincemap,
@@ -3358,7 +3532,7 @@ def main(eventbus=None, is_fullscreen=False):
                                 "turn": currentturnnumber,
                             })
                             researching_node_id = None
-                    frontlineupdates = refreshfrontlines()
+                    frontlineupdates.update(refreshfrontlines(allowautoadvance=False))
                     currentturnnumber += 1
                     routepreviewset = frontlineupdates
                     updatescriptengine()

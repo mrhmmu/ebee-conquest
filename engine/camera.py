@@ -2,7 +2,7 @@ import pygame
 from dataclasses import dataclass
 
 minimumzoomvalue = 0.5
-maximumzoomvalue = 20.0
+maximumzoomvalue = 80.0
 zoomstepvalue = 1.15
 edgepanmargin = 40
 edgepanspeed = 600

@@ -813,6 +813,7 @@ def getborderedgekey(firstprovinceid, secondprovinceid):
 
 
 bordersegmentcache = {}
+edgegridcellsize = 24.0
 
 
 
@@ -875,6 +876,51 @@ def getprovinceedgedata(province):
 
     province["_edgeentriescache"] = edgeentries
     return edgeentries
+
+
+def getprovinceedgegrid(province, cellsize=edgegridcellsize):
+    edgeentries = getprovinceedgedata(province)
+    cachedgrid = province.get("_edgegridcache")
+    if cachedgrid is not None:
+        if cachedgrid.get("cellsize") == cellsize and cachedgrid.get("edgeentries") is edgeentries:
+            return cachedgrid
+
+    gridlookup = {}
+    for edgeindex, edgeentry in enumerate(edgeentries):
+        minimumgridx = int(math.floor(edgeentry["minx"] / cellsize))
+        maximumgridx = int(math.floor(edgeentry["maxx"] / cellsize))
+        minimumgridy = int(math.floor(edgeentry["miny"] / cellsize))
+        maximumgridy = int(math.floor(edgeentry["maxy"] / cellsize))
+        for gridx in range(minimumgridx, maximumgridx + 1):
+            for gridy in range(minimumgridy, maximumgridy + 1):
+                gridlookup.setdefault((gridx, gridy), []).append(edgeindex)
+
+    cachedgrid = {
+        "cellsize": cellsize,
+        "edgeentries": edgeentries,
+        "grid": gridlookup,
+    }
+    province["_edgegridcache"] = cachedgrid
+    return cachedgrid
+
+
+def iterprovinceedgecandidates(province, queryedgeentry, padding, cellsize=edgegridcellsize):
+    cachedgrid = getprovinceedgegrid(province, cellsize=cellsize)
+    edgeentries = cachedgrid["edgeentries"]
+    gridlookup = cachedgrid["grid"]
+    minimumgridx = int(math.floor((queryedgeentry["minx"] - padding) / cellsize))
+    maximumgridx = int(math.floor((queryedgeentry["maxx"] + padding) / cellsize))
+    minimumgridy = int(math.floor((queryedgeentry["miny"] - padding) / cellsize))
+    maximumgridy = int(math.floor((queryedgeentry["maxy"] + padding) / cellsize))
+    seenedgeindexes = set()
+
+    for gridx in range(minimumgridx, maximumgridx + 1):
+        for gridy in range(minimumgridy, maximumgridy + 1):
+            for edgeindex in gridlookup.get((gridx, gridy), ()):
+                if edgeindex in seenedgeindexes:
+                    continue
+                seenedgeindexes.add(edgeindex)
+                yield edgeentries[edgeindex]
 
 
 def pointvsline_distance(point, lineentry):
@@ -967,12 +1013,14 @@ def getsharedbordersegments(
             return list(cachedsegments)
 
     playeredgeentries = getprovinceedgedata(playerprovince)
-    foreignedgeentries = getprovinceedgedata(foreignprovince)
     sharedsegmentlookup = {}
 
-
     for playeredgeentry in playeredgeentries:
-        for foreignedgeentry in foreignedgeentries:
+        for foreignedgeentry in iterprovinceedgecandidates(
+            foreignprovince,
+            playeredgeentry,
+            padding=linetolerancee,
+        ):
             overlappedsegment = getoverlapsegment(
                 playeredgeentry,
                 foreignedgeentry,
@@ -1541,6 +1589,143 @@ def applyfrontlinetransferplan(
     }
 
 
+def autoadvancefrontlineassignment(
+    frontlineassignment,
+    provincemap,
+    movementorderlist,
+    emit=None,
+    currentturnnumber=None,
+    hostilecountryset=None,
+):
+    frontlineid = frontlineassignment.get("frontlineid")
+    playercountry = frontlineassignment.get("country")
+    if not frontlineid or not playercountry:
+        return {
+            "routepreviewset": set(),
+            "orderscreated": 0,
+        }
+
+    frontlineedges = sorted(
+        [edge for edge in frontlineassignment.get("frontlineedges", ()) if isinstance(edge, dict)],
+        key=lambda edge: (
+            str(edge.get("playerprovinceid", "")),
+            str(edge.get("foreignprovinceid", "")),
+        ),
+    )
+    if not frontlineedges:
+        return {
+            "routepreviewset": set(),
+            "orderscreated": 0,
+        }
+
+    targetcountry = frontlineassignment.get("targetcountry")
+    hostilecountryset = set(hostilecountryset) if hostilecountryset is not None else None
+    maxorders = max(1, min(5, len(frontlineedges) // 2 + 1))
+    routepreviewset = set()
+    orderscreated = 0
+
+    for edge in frontlineedges:
+        if orderscreated >= maxorders:
+            break
+
+        sourceprovinceid = edge.get("playerprovinceid")
+        targetprovinceid = edge.get("foreignprovinceid")
+        if not sourceprovinceid or not targetprovinceid:
+            continue
+
+        sourceprovince = provincemap.get(sourceprovinceid)
+        targetprovince = provincemap.get(targetprovinceid)
+        if not sourceprovince or not targetprovince:
+            continue
+        if getprovincecontroller(sourceprovince) != playercountry:
+            continue
+
+        defendingcountry = getprovincecontroller(targetprovince)
+        if not defendingcountry or defendingcountry == playercountry:
+            continue
+        if hostilecountryset is not None and defendingcountry not in hostilecountryset:
+            continue
+        if targetcountry and defendingcountry != targetcountry:
+            continue
+
+        availableassigned = min(
+            getprovincefrontlinetroops(sourceprovince, frontlineid),
+            max(0, int(sourceprovince.get("troops", 0))),
+        )
+        if availableassigned <= 1:
+            continue
+
+        defenders = max(0, int(targetprovince.get("troops", 0)))
+        if defenders <= 0:
+            minimumreserve = max(1, int(availableassigned * 0.35))
+            requiredattackers = max(1, int(math.ceil(availableassigned * 0.45)))
+        else:
+            entrenched = isprovinceentrenched(targetprovince, currentturnnumber)
+            defensemultiplier = entrenchmentdefensemultiplier if entrenched else 1.0
+            effectivedefenders = int(math.ceil(defenders * defensemultiplier))
+            requiredattackers = effectivedefenders + max(1, effectivedefenders // 4)
+            minimumreserve = max(1, int(availableassigned * 0.30), defenders // 3)
+
+        sparetroops = availableassigned - minimumreserve
+        if sparetroops <= 0:
+            continue
+        if availableassigned < requiredattackers + minimumreserve:
+            continue
+
+        desiredattackers = max(
+            requiredattackers,
+            min(sparetroops, int(math.ceil(availableassigned * 0.45))),
+        )
+        movingtroopcount = min(sparetroops, max(desiredattackers, 1))
+        if movingtroopcount <= 0:
+            continue
+
+        sourceprovince["troops"] -= movingtroopcount
+        addprovincefrontlinetroops(sourceprovince, frontlineid, -movingtroopcount)
+        markprovincetroopactivity(sourceprovince, currentturnnumber)
+        path = [sourceprovinceid, targetprovinceid]
+        movementorderlist.append(
+            {
+                "amount": movingtroopcount,
+                "path": path,
+                "index": 0,
+                "current": sourceprovinceid,
+                "speedmodifier": 1.0,
+                "controllercountry": playercountry,
+                "country": playercountry,
+                "countrycolor": sourceprovince.get("countrycolor"),
+                "ordercreatedturn": currentturnnumber,
+                "frontlineid": frontlineid,
+                "divisionid": frontlineid,
+                "autoadvance": True,
+            }
+        )
+        routepreviewset.update(path)
+        orderscreated += 1
+
+        if emit is not None:
+            emit(
+                EngineEventType.MOVEORDERCREATED,
+                {
+                    "sourceProvinceId": sourceprovinceid,
+                    "destinationProvinceId": targetprovinceid,
+                    "path": list(path),
+                    "troops": movingtroopcount,
+                    "country": playercountry,
+                    "turn": currentturnnumber,
+                    "frontlineId": frontlineid,
+                    "autoAdvance": True,
+                },
+            )
+
+    frontlineassignment["lastautoadvanceturn"] = currentturnnumber
+    frontlineassignment["lastautoadvanceorders"] = orderscreated
+    return {
+        "routepreviewset": routepreviewset,
+        "orderscreated": orderscreated,
+    }
+
+
 def refreshfrontlineassignment(
     frontlineassignment,
     provincemap,
@@ -1733,6 +1918,9 @@ def createfrontline(provincemap, provincegraph, playercountry, selectedprovincei
         "country": playercountry,
         "nearbydepth": nearbydepth,
         "frontlineid": None,
+        "divisionid": None,
+        "divisionname": None,
+        "autoadvance": False,
         "fallbackforeignprovinceid": borderedge.get("foreignprovinceid"),
         "active": True,
         "transferplan": frontlineplan["transferplan"],
