@@ -775,6 +775,11 @@ def main(eventbus=None, is_fullscreen=False):
         eventbus = EventBus()
     startupbegintimestamp = time.perf_counter()
     pygame.init()
+    pygame.mixer.init()
+    
+    select_sound = pygame.mixer.Sound("game/sounds/troop_select.wav")
+    select_sound.set_volume(0.5)
+    
     logstartupdiagnostics(startupbegintimestamp, "pygame init", f"python={platform.python_version()} pygame={pygame.version.ver}")
 
     # Set display mode once based on is_fullscreen
