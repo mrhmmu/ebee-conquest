@@ -430,6 +430,8 @@ class InGameUI:
         self._warprogress_dragging = False
         self._warprogress_drag_offset = (0, 0)
         self._warprogress_active_index = 0
+        self.production_popup_open = False
+        self._production_popup_back_rect = pygame.Rect(0, 0, 10, 10)
         self._recruit_action_rect = pygame.Rect(0, 0, 10, 10)
         self._declarewar_rect = pygame.Rect(0, 0, 10, 10)
         self._split_rect = pygame.Rect(0, 0, 10, 10)
@@ -976,6 +978,18 @@ class InGameUI:
                 return None
             self.pausemenuopen = not self.pausemenuopen
             return self.actionpausemenu
+        
+
+        if self.production_popup_open:
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.production_popup_open = False
+                return None
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self._production_popup_back_rect.collidepoint(event.pos):
+                    self.production_popup_open = False
+                    return None
+                self.production_popup_open = False
+                return None
 
         if self.warprogressopen:
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -1084,6 +1098,11 @@ class InGameUI:
             return self.actionendturn
 
         selected_tab = self.bottom_buttons.selected
+
+        if selected_tab == "PRODUCTION" and not self._countrymenutarget:
+            if self._production_blank_rect.collidepoint(pos):
+                self.production_popup_open = True
+                return None
 
         if selected_tab == "RESEARCH" and not self._countrymenutarget:
 
@@ -1572,6 +1591,23 @@ class InGameUI:
 
         if self.pausemenuopen:
             self._draw_pausemenu(surface)
+
+
+
+        if self.production_popup_open:
+            overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 120))
+            surface.blit(overlay, (0, 0))
+            popup_rect = pygame.Rect(0, 0, 600, 400)
+            popup_rect.center = surface.get_rect().center
+            self._draw_glass_panel(surface, popup_rect, radius=8, border=(72, 86, 108), glow=True)
+            title = self.title_font.render("PRODUCTION", True, _C_GOLD_BRIGHT)
+            surface.blit(title, title.get_rect(center=(popup_rect.centerx, popup_rect.y + 40)))
+            back_w, back_h = 140, 40
+            self._production_popup_back_rect = pygame.Rect(0, 0, back_w, back_h)
+            self._production_popup_back_rect.centerx = popup_rect.centerx
+            self._production_popup_back_rect.y = popup_rect.bottom - back_h - 20
+            self._draw_glow_btn(surface, "prod_back", self._production_popup_back_rect, True, "BACK", mouse=mouse)
 
 
     def _draw_metric_chip(self, surface, rect, label, value, icon_key=None, accent=_C_GOLD):
