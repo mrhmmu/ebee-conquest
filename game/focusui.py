@@ -207,22 +207,11 @@ class FocusTreeView:
         pygame.draw.rect(surface, (0, 0, 0), viewrect)
 
 
-        self.drawcoverbanner(surface, viewrect)
-
         self.closerect = pygame.Rect(viewrect.right - 150, 20, 118, 34)
-        title = str(self.data.get("name") or "National Policy").replace("Focus Tree", "National Policy")
-        title_surface = titlefont.render(title, True, (238, 220, 165))
-        shadow_surface = titlefont.render(title, True, (0, 0, 0))
-        surface.blit(shadow_surface, (34, 24))
-        surface.blit(title_surface, (32, 22))
-        self.drawbutton(surface, self.closerect, True, "Back", font)
-
-        message = str(self.data.get("lastmessage") or "")
-        if message:
-            self.fittext(surface, message, font, (190, 205, 230), pygame.Rect(32, 62, viewrect.width - 220, 22))
 
         focuses = [focus for focus in self.data.get("focuses", ()) if isinstance(focus, dict)] # filter out invalid focuses
         if not focuses:
+            self.drawheader(surface, viewrect, titlefont, font)
             note = font.render("Cant find any focus data for this country", True, (205, 205, 205))
             surface.blit(note, note.get_rect(center=viewrect.center))
             self.noderects = {}
@@ -246,6 +235,21 @@ class FocusTreeView:
         if focus:
             self.drawdetails(surface, focus, titlefont, font) # draw the details panel for the selected focus
 
+        self.drawheader(surface, viewrect, titlefont, font)
+
+    def drawheader(self, surface, viewrect, titlefont, font):
+        self.drawcoverbanner(surface, viewrect)
+        title = str(self.data.get("name") or "National Policy").replace("Focus Tree", "National Policy")
+        title_surface = titlefont.render(title, True, (238, 220, 165))
+        shadow_surface = titlefont.render(title, True, (0, 0, 0))
+        surface.blit(shadow_surface, (34, 24))
+        surface.blit(title_surface, (32, 22))
+        self.drawbutton(surface, self.closerect, True, "Back", font)
+
+        message = str(self.data.get("lastmessage") or "")
+        if message:
+            self.fittext(surface, message, font, (190, 205, 230), pygame.Rect(32, 62, viewrect.width - 220, 22))
+
     def drawcoverbanner(self, surface, viewrect):
         coverpath = str(self.data.get("cover_image") or "").strip()
         if not coverpath:
@@ -256,6 +260,7 @@ class FocusTreeView:
             return
 
         bannerrect = pygame.Rect(0, 0, viewrect.width, self.headerheight)
+        pygame.draw.rect(surface, (0, 0, 0), bannerrect)
         bannerimage = pygame.Surface(bannerrect.size, pygame.SRCALPHA)
         self.drawcroppedimage(bannerimage, cover, bannerimage.get_rect())
         bannerimage.set_alpha(51)
