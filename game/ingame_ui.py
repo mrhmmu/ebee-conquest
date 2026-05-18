@@ -357,6 +357,9 @@ class InGameUI:
         self.small_font = pygame.font.SysFont("segoeui", 11)
         self.small_font_bold = pygame.font.SysFont("segoeui", 11, bold=True)
         self.number_font = pygame.font.SysFont("bahnschrift", 17, bold=True)
+        
+        self.ui_click_sound = pygame.mixer.Sound("game/sounds/click.wav")
+        self.ui_click_sound.set_volume(0.4)
 
         self.leftbar_width = 256
         self.topbar_height = 80
@@ -1246,6 +1249,7 @@ class InGameUI:
         if self.pausemenuopen:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if self._pausequit_rect.collidepoint(event.pos):
+                    self.ui_click_sound.play()
                     return self.actionquitgame
             return None
 
@@ -1313,7 +1317,8 @@ class InGameUI:
 
         for item, rect in (self.leftbar.item_rects or {}).items():
             if rect.collidepoint(pos):
-
+                
+                self.ui_click_sound.play()
                 self.active_left_tab = item
                 self.applylayout()
                 if item == "NATIONAL POLICY":
@@ -1323,6 +1328,7 @@ class InGameUI:
 
         for item, rect in (self.bottom_buttons.item_rects or {}).items():
             if rect.collidepoint(pos):
+                self.ui_click_sound.play()
                 self.bottom_buttons.set_selected(item)
                 self.applylayout()
                 if item == "RESEARCH":
@@ -1331,6 +1337,7 @@ class InGameUI:
 
       
         if self._endturn_rect.collidepoint(pos):
+            self.ui_click_sound.play()
             return self.actionendturn
 
         selected_tab = self.bottom_buttons.selected
@@ -1356,6 +1363,7 @@ class InGameUI:
 
         if self.active_left_tab == "COMBAT" and not self._countrymenutarget:
             if self._war_progress_rect.collidepoint(pos):
+                self.ui_click_sound.play()
                 self.warprogressopen = not self.warprogressopen
                 return self.actionwarprogress
         if self._selectedmapcountry and not self._countrymenutarget:
@@ -1369,6 +1377,7 @@ class InGameUI:
                 return None
         if selected_tab == "TROOPS":
             if self._recruit_action_rect.collidepoint(pos):
+                self.ui_click_sound.play()
                 if self.recruitenabled:
                     return self.actionrecruit
                 return None
@@ -1382,10 +1391,13 @@ class InGameUI:
             totaltroops = sum(max(0, int(e.get("troops", 0))) for e in selected)
             if totaltroops > 0:
                 if self._split_rect.collidepoint(pos) and totaltroops > 1:
+                    self.ui_click_sound.play()
                     return self.actionsplit
                 if self._merge_rect.collidepoint(pos) and len(selected) > 1:
+                    self.ui_click_sound.play()
                     return self.actionmerge
                 if self._frontline_rect.collidepoint(pos):
+                    self.ui_click_sound.play()
                     return self.actionfrontline
                 divisionentry = self._get_selected_division_entry()
                 if self._auto_advance_rect.collidepoint(pos) and divisionentry:

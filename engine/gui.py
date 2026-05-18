@@ -101,7 +101,7 @@ def gui_getcountryflagkey(country_name):
     return str(country_name or "").strip().lower().replace(" ", "_").replace("-", "_")
 
 
-def gui_gettroopbadgevisualrect(centerposition, troopcount, fontobject, flags=None, country_name=None):
+def gui_gettroopbadgevisualrect(centerposition, troopcount, fontobject, flags=None, country_name=None, entrenched=False):
     if not centerposition:
         return pygame.Rect(0, 0, 0, 0)
 
@@ -111,6 +111,8 @@ def gui_gettroopbadgevisualrect(centerposition, troopcount, fontobject, flags=No
     padding = 6
     spacing = 4
     width = labelsurface.get_width() + padding * 2 + 8
+    if entrenched:
+        width += 14 + spacing
     if flagimage:
         width += flagimage.get_width() + spacing
     width = max(58, width)
@@ -171,6 +173,7 @@ def gui_mergetroopbadgeentries(troopbadgelist, fontobject, flags=None):
             country = badgeentry.get("country")
             backgroundcolor = badgeentry.get("backgroundcolor", (0, 0, 0))
             bordercolor = badgeentry.get("bordercolor", (165, 165, 165))
+            entrenched = bool(badgeentry.get("entrenched", False))
             sourceentry = dict(badgeentry)
         else:
             center, troops = badgeentry
@@ -178,12 +181,14 @@ def gui_mergetroopbadgeentries(troopbadgelist, fontobject, flags=None):
             country = None
             backgroundcolor = (0, 0, 0)
             bordercolor = (165, 165, 165)
+            entrenched = False
             sourceentry = {
                 "center": center,
                 "troops": troops,
                 "country": country,
                 "backgroundcolor": backgroundcolor,
                 "bordercolor": bordercolor,
+                "entrenched": entrenched,
             }
 
         if not center or troops <= 0:
@@ -194,7 +199,8 @@ def gui_mergetroopbadgeentries(troopbadgelist, fontobject, flags=None):
         sourceentry["country"] = country
         sourceentry["backgroundcolor"] = backgroundcolor
         sourceentry["bordercolor"] = bordercolor
-        sourceentry["_visualrect"] = gui_gettroopbadgevisualrect(center, troops, fontobject, flags, country)
+        sourceentry["entrenched"] = entrenched
+        sourceentry["_visualrect"] = gui_gettroopbadgevisualrect(center, troops, fontobject, flags, country, entrenched)
         entries.append(sourceentry)
 
     if len(entries) <= 1:
@@ -247,9 +253,12 @@ def gui_mergetroopbadgeentries(troopbadgelist, fontobject, flags=None):
                     "country": country,
                     "countrykey": countrykey,
                     "troops": 0,
+                    "entrenchedtroops": 0,
                 }
                 row = rowsbycountry[rowkey]
             row["troops"] += max(0, int(entry.get("troops", 0)))
+            if entry.get("entrenched", False):
+                row["entrenchedtroops"] += max(0, int(entry.get("troops", 0)))
             if entry.get("backgroundcolor", (0, 0, 0)) != firstbackground or entry.get("bordercolor", (165, 165, 165)) != firstborder:
                 mixedstyle = True
 
@@ -264,6 +273,7 @@ def gui_mergetroopbadgeentries(troopbadgelist, fontobject, flags=None):
             "troops": sum(int(row.get("troops", 0)) for row in rowlist),
             "backgroundcolor": backgroundcolor,
             "bordercolor": bordercolor,
+            "entrenched": any(int(row.get("entrenchedtroops", 0)) > 0 for row in rowlist),
         }
 
         if len(rowlist) == 1:
@@ -993,6 +1003,7 @@ class EngineUI:
                     backgroundcolor=badgeentry.get("backgroundcolor", (0, 0, 0)),
                     bordercolor=badgeentry.get("bordercolor", (165, 165, 165)),
                     rows=badgeentry.get("rows"),
+                    entrenched=badgeentry.get("entrenched", False),
                 )
                 continue
 
@@ -1118,6 +1129,7 @@ def gui_drawtroopcountbadge(
     backgroundcolor=(0, 0, 0),
     bordercolor=(165, 165, 165),
     rows=None,
+    entrenched=False,
 ):
     if not centerposition:
         return
@@ -1144,11 +1156,18 @@ def gui_drawtroopcountbadge(
                 row.get("troops", 0),
                 text_color,
             )
+            entrenchment_surf = fontobject.render("E", True, (14, 86, 38)) if int(row.get("entrenchedtroops", 0)) > 0 else None
             rowwidth = text_surf.get_width()
+            if entrenchment_surf:
+                rowwidth += entrenchment_surf.get_width() + spacing
             if flag_img:
                 rowwidth += flag_img.get_width() + spacing
-            rowheight = max(text_surf.get_height(), flag_img.get_height() if flag_img else 0)
-            rowvisuals.append((flag_img, text_surf, rowwidth, rowheight))
+            rowheight = max(
+                text_surf.get_height(),
+                flag_img.get_height() if flag_img else 0,
+                entrenchment_surf.get_height() if entrenchment_surf else 0,
+            )
+            rowvisuals.append((entrenchment_surf, flag_img, text_surf, rowwidth, rowheight))
             contentwidth = max(contentwidth, rowwidth)
             rowheights.append(rowheight)
 
@@ -1163,9 +1182,12 @@ def gui_drawtroopcountbadge(
         pygame.draw.rect(screen, accent_color, pygame.Rect(rect.x, rect.y, 4, rect.height), border_radius=2)
 
         draw_y = rect.y + padding
-        for flag_img, text_surf, rowwidth, rowheight in rowvisuals:
+        for entrenchment_surf, flag_img, text_surf, rowwidth, rowheight in rowvisuals:
             draw_x = rect.x + padding + 4
             center_y = draw_y + rowheight // 2
+            if entrenchment_surf:
+                screen.blit(entrenchment_surf, (draw_x, center_y - entrenchment_surf.get_height() // 2))
+                draw_x += entrenchment_surf.get_width() + spacing
             if flag_img:
                 screen.blit(flag_img, (draw_x, center_y - flag_img.get_height() // 2))
                 draw_x += flag_img.get_width() + spacing
@@ -1176,15 +1198,19 @@ def gui_drawtroopcountbadge(
     country_key = gui_getcountryflagkey(country_name)
     text_surf = fontobject.render(str(troopcount), True, text_color)
     flag_img = flags.get(country_key) if flags and country_key else None
+    entrenchment_surf = fontobject.render("E", True, (14, 86, 38)) if bool(entrenched) else None
 
     content_width = text_surf.get_width()
     if flag_img:
         content_width += flag_img.get_width() + spacing
+    if entrenchment_surf:
+        content_width += entrenchment_surf.get_width() + spacing
 
     width = max(58, content_width + padding * 2 + 8)
     height = max(
         text_surf.get_height(),
-        flag_img.get_height() if flag_img else 0
+        flag_img.get_height() if flag_img else 0,
+        entrenchment_surf.get_height() if entrenchment_surf else 0,
     ) + padding * 2 + 2
 
     rect = pygame.Rect(
@@ -1213,6 +1239,12 @@ def gui_drawtroopcountbadge(
 
     text_y = center_y - text_surf.get_height() // 2
     screen.blit(text_surf, (draw_x, text_y))
+    draw_x += text_surf.get_width()
+
+    if entrenchment_surf:
+        draw_x += spacing
+        entrenchment_y = center_y - entrenchment_surf.get_height() // 2
+        screen.blit(entrenchment_surf, (draw_x, entrenchment_y))
 
 def gui_drawhoverlabel(screen, fontobject, state, mouseposition):
     if not state:

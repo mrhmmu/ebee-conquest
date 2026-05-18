@@ -99,7 +99,7 @@ class NpcInvasionPlanner:
         )
         if targetisentrenched:
             # entrenched targets allow earlier attrition pressure.
-            effectiveattritionthreshold = max(0.35, effectiveattritionthreshold - 0.12)
+            effectiveattritionthreshold = min(effectiveattritionthreshold, 0.30)
         minimumattritionforce = max(1, int(defendercount * effectiveattritionthreshold))
         return totalattackers < minimumattritionforce
 

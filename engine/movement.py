@@ -18,7 +18,8 @@ terrainmovecostlookup = {
 
 
 entrenchmentturnrequired = 3
-entrenchmentdefensemultiplier = 1.33
+entrenchmentdefensemultiplier = 2.0
+capitalcutoffsupplymultiplier = 0.70
 
 
 # Keep border rendering/selection aligned with adjacency builder tolerances.
@@ -379,9 +380,91 @@ def buildmovementordercurrentindex(movementorderlist, currentturnnumber=None):
     return movementorderindex
 
 
-def processmovementorders(movementorderlist, provincemap, emit, currentturnnumber=None):
+def isprovinceconnectedtocapital(
+    provinceid,
+    countryname,
+    provincemap,
+    provincegraph,
+    countrycapitalprovinceidlookup=None,
+    connectioncache=None,
+):
+    if not countryname or not provinceid or not provincegraph or not countrycapitalprovinceidlookup:
+        return True
+
+    cachekey = (provinceid, countryname)
+    if connectioncache is not None and cachekey in connectioncache:
+        return connectioncache[cachekey]
+
+    capitalprovinceid = countrycapitalprovinceidlookup.get(countryname)
+    if not capitalprovinceid:
+        return True
+
+    startprovince = provincemap.get(provinceid)
+    capitalprovince = provincemap.get(capitalprovinceid)
+    if not startprovince or not capitalprovince:
+        return True
+
+    if getprovincecontroller(startprovince) != countryname:
+        connected = False
+    elif getprovincecontroller(capitalprovince) != countryname:
+        connected = False
+    elif provinceid == capitalprovinceid:
+        connected = True
+    else:
+        connected = False
+        visited = {provinceid}
+        searchqueue = deque([provinceid])
+        while searchqueue:
+            currentprovinceid = searchqueue.popleft()
+            for neighborid in provincegraph.get(currentprovinceid, ()):
+                if neighborid in visited:
+                    continue
+                neighborprovince = provincemap.get(neighborid)
+                if not neighborprovince or getprovincecontroller(neighborprovince) != countryname:
+                    continue
+                if neighborid == capitalprovinceid:
+                    connected = True
+                    searchqueue.clear()
+                    break
+                visited.add(neighborid)
+                searchqueue.append(neighborid)
+
+    if connectioncache is not None:
+        connectioncache[cachekey] = connected
+    return connected
+
+
+def getcapitalsupplymultiplier(
+    provinceid,
+    countryname,
+    provincemap,
+    provincegraph,
+    countrycapitalprovinceidlookup=None,
+    connectioncache=None,
+):
+    if isprovinceconnectedtocapital(
+        provinceid,
+        countryname,
+        provincemap,
+        provincegraph,
+        countrycapitalprovinceidlookup=countrycapitalprovinceidlookup,
+        connectioncache=connectioncache,
+    ):
+        return 1.0
+    return capitalcutoffsupplymultiplier
+
+
+def processmovementorders(
+    movementorderlist,
+    provincemap,
+    emit,
+    currentturnnumber=None,
+    provincegraph=None,
+    countrycapitalprovinceidlookup=None,
+):
     # MOVEMENT processing
     finishedorderlist = []
+    supplyconnectioncache = {}
     # Ebee Super Optimization (ESO) 27/4
     # O(m*m) -> O(m)
     # index active orders by current province and country for defender lookups
@@ -491,13 +574,32 @@ def processmovementorders(movementorderlist, provincemap, emit, currentturnnumbe
                 basedefenders = int(nextprovince.get("troops", 0))
                 defenders = basedefenders + movingdefenders
 
+                attackerprovinceid = pathlist[currentpathindex]
+                attackermultiplier = getcapitalsupplymultiplier(
+                    attackerprovinceid,
+                    movingcountry,
+                    provincemap,
+                    provincegraph,
+                    countrycapitalprovinceidlookup=countrycapitalprovinceidlookup,
+                    connectioncache=supplyconnectioncache,
+                )
+                defendermultiplier = getcapitalsupplymultiplier(
+                    nextprovinceid,
+                    nextcountry,
+                    provincemap,
+                    provincegraph,
+                    countrycapitalprovinceidlookup=countrycapitalprovinceidlookup,
+                    connectioncache=supplyconnectioncache,
+                )
                 entrenched = isprovinceentrenched(nextprovince, currentturnnumber)
                 defensemultiplier = entrenchmentdefensemultiplier if entrenched else 1.0
-                effectivedefenders = int(math.ceil(defenders * defensemultiplier))
+                totaldefensemultiplier = defensemultiplier * defendermultiplier
+                effectiveattackers = int(math.ceil(attackers * attackermultiplier))
+                effectivedefenders = int(math.ceil(defenders * totaldefensemultiplier))
 
-                if defenders > 0 and attackers <= effectivedefenders:
-                    remainingeffective = effectivedefenders - attackers
-                    remainingdefenders = int(math.ceil(remainingeffective / defensemultiplier)) if remainingeffective > 0 else 0
+                if defenders > 0 and effectiveattackers <= effectivedefenders:
+                    remainingeffective = effectivedefenders - effectiveattackers
+                    remainingdefenders = int(math.ceil(remainingeffective / totaldefensemultiplier)) if remainingeffective > 0 else 0
                     remainingsurvivors = max(0, min(defenders, remainingdefenders))
 
                     interruptedamountlist = [int(order.get("amount", 0)) for order in interruptedorderlist]
@@ -538,6 +640,10 @@ def processmovementorders(movementorderlist, provincemap, emit, currentturnnumbe
                                 "defendersAfter": nextprovince["troops"],
                                 "defenseMultiplier": defensemultiplier,
                                 "defendersEntrenched": entrenched,
+                                "attackerSupplyMultiplier": attackermultiplier,
+                                "defenderSupplyMultiplier": defendermultiplier,
+                                "attackerCutOffFromCapital": attackermultiplier < 1.0,
+                                "defenderCutOffFromCapital": defendermultiplier < 1.0,
                             },
                         )
 
@@ -547,7 +653,13 @@ def processmovementorders(movementorderlist, provincemap, emit, currentturnnumbe
                     break
 
                 if defenders > 0:
-                    movementorder["amount"] = max(0, int(math.ceil(attackers - effectivedefenders)))
+                    remainingeffectiveattackers = max(0, effectiveattackers - effectivedefenders)
+                    remainingattackers = (
+                        int(math.ceil(remainingeffectiveattackers / attackermultiplier))
+                        if remainingeffectiveattackers > 0
+                        else 0
+                    )
+                    movementorder["amount"] = max(0, min(attackers, remainingattackers))
                     nextprovince["troops"] = 0
 
                     for interruptedorder in interruptedorderlist:
@@ -572,6 +684,10 @@ def processmovementorders(movementorderlist, provincemap, emit, currentturnnumbe
                                 "defendersAfter": 0,
                                 "defenseMultiplier": defensemultiplier,
                                 "defendersEntrenched": entrenched,
+                                "attackerSupplyMultiplier": attackermultiplier,
+                                "defenderSupplyMultiplier": defendermultiplier,
+                                "attackerCutOffFromCapital": attackermultiplier < 1.0,
+                                "defenderCutOffFromCapital": defendermultiplier < 1.0,
                             },
                         )
 
@@ -1371,7 +1487,34 @@ def buildfrontlinetransferplan(provincemap, selectedprovinceids, frontlineprovin
     return buildbalancedtransferplan(sourceamountlookup, validtargetprovinceids)
 
 
-def buildfrontlinedivisiontransferplan(provincemap, frontlineid, frontlineprovinceids, playercountry):
+def buildfrontlinedivisiontransferplan(
+    provincemap,
+    frontlineid,
+    frontlineprovinceids,
+    playercountry,
+    currentturnnumber=None,
+):
+    validtargetprovinceids = []
+    targetprovinceidset = set()
+    for provinceid in frontlineprovinceids or ():
+        province = provincemap.get(provinceid)
+        if not province:
+            continue
+        if getprovincecontroller(province) != playercountry:
+            continue
+        if provinceid in targetprovinceidset:
+            continue
+        validtargetprovinceids.append(provinceid)
+        targetprovinceidset.add(provinceid)
+
+    if not validtargetprovinceids:
+        return {
+            "totalassignedtroops": 0,
+            "transferplan": [],
+            "targetprovinceids": [],
+        }
+
+    targetassignedlookup = {provinceid: 0 for provinceid in validtargetprovinceids}
     sourceamountlookup = {}
     for provinceid, province in sorted(provincemap.items()):
         if getprovincecontroller(province) != playercountry:
@@ -1379,9 +1522,97 @@ def buildfrontlinedivisiontransferplan(provincemap, frontlineid, frontlineprovin
         assignedtroops = getprovincefrontlinetroops(province, frontlineid)
         if assignedtroops <= 0:
             continue
-        sourceamountlookup[provinceid] = assignedtroops
+        if provinceid in targetprovinceidset:
+            targetassignedlookup[provinceid] += assignedtroops
+        sourceamountlookup[provinceid] = sourceamountlookup.get(provinceid, 0) + assignedtroops
 
-    return buildbalancedtransferplan(sourceamountlookup, list(frontlineprovinceids or ()))
+    totalavailabletroops = sum(sourceamountlookup.values())
+    if totalavailabletroops <= 0:
+        return {
+            "totalassignedtroops": 0,
+            "transferplan": [],
+            "targetprovinceids": [],
+        }
+
+    targetcount = len(validtargetprovinceids)
+    baseallocation = totalavailabletroops // targetcount
+    remainder = totalavailabletroops % targetcount
+    desiredlookup = {
+        provinceid: baseallocation + (1 if index < remainder else 0)
+        for index, provinceid in enumerate(validtargetprovinceids)
+    }
+
+    transferplan = []
+    movablelookup = {}
+    projectedtargetlookup = dict(targetassignedlookup)
+    for provinceid, assignedtroops in sourceamountlookup.items():
+        if provinceid not in targetprovinceidset:
+            movablelookup[provinceid] = assignedtroops
+            continue
+
+        province = provincemap.get(provinceid)
+        tolerance = 4 if isprovinceentrenched(province, currentturnnumber) else 1
+        desiredtroops = desiredlookup.get(provinceid, 0)
+        keepamount = min(assignedtroops, desiredtroops + tolerance)
+        if keepamount > 0:
+            transferplan.append(
+                {
+                    "sourceprovinceid": provinceid,
+                    "targetprovinceid": provinceid,
+                    "amount": keepamount,
+                }
+            )
+        movabletroops = assignedtroops - keepamount
+        if movabletroops > 0:
+            movablelookup[provinceid] = movabletroops
+            projectedtargetlookup[provinceid] = keepamount
+
+    for sourceprovinceid, availabletroops in movablelookup.items():
+        assignedbytarget = {}
+        remainingtroops = availabletroops
+        while remainingtroops > 0:
+            deficitprovinceids = [
+                provinceid
+                for provinceid in validtargetprovinceids
+                if projectedtargetlookup.get(provinceid, 0) < desiredlookup.get(provinceid, 0)
+            ]
+            if deficitprovinceids:
+                targetprovinceid = min(
+                    deficitprovinceids,
+                    key=lambda provinceid: (
+                        projectedtargetlookup.get(provinceid, 0) - desiredlookup.get(provinceid, 0),
+                        str(provinceid),
+                    ),
+                )
+            else:
+                targetprovinceid = min(
+                    validtargetprovinceids,
+                    key=lambda provinceid: (projectedtargetlookup.get(provinceid, 0), str(provinceid)),
+                )
+            assignedbytarget[targetprovinceid] = assignedbytarget.get(targetprovinceid, 0) + 1
+            projectedtargetlookup[targetprovinceid] = projectedtargetlookup.get(targetprovinceid, 0) + 1
+            remainingtroops -= 1
+
+        for targetprovinceid, amount in assignedbytarget.items():
+            transferplan.append(
+                {
+                    "sourceprovinceid": sourceprovinceid,
+                    "targetprovinceid": targetprovinceid,
+                    "amount": amount,
+                }
+            )
+
+    totalassignedtroops = sum(entry["amount"] for entry in transferplan)
+    targetprovinceids = [
+        provinceid
+        for provinceid in validtargetprovinceids
+        if projectedtargetlookup.get(provinceid, 0) > 0
+    ]
+    return {
+        "totalassignedtroops": totalassignedtroops,
+        "transferplan": transferplan,
+        "targetprovinceids": targetprovinceids,
+    }
 
 
 def orderfrontlineprovinceids(frontlineprovinceids, anchorprovinceid):
@@ -1811,6 +2042,7 @@ def refreshfrontlineassignment(
         frontlineid,
         orderedfrontlineprovinceids,
         playercountry,
+        currentturnnumber=currentturnnumber,
     )
     deploymentresult = applyfrontlinetransferplan(
         frontlineassignment,

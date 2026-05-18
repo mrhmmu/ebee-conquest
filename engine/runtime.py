@@ -9,6 +9,51 @@ from svgelements import Path
 import ctypes
 ctypes.windll.user32.SetProcessDPIAware()
 
+select_sound = None
+
+COVID_NEWS_EVENTS = {
+    10: {
+        "title": "FIRST COVID CASES",
+        "description": "Several Southeast Asian countries begin reporting their first COVID-19 cases.",
+    },
+    20: {
+        "title": "BORDER RESTRICTIONS IMPLEMENTED",
+        "description": "Governments across Southeast Asia tighten border controls to contain the virus.",
+    },
+    30: {
+        "title": "NATIONAL LOCKDOWNS BEGIN",
+        "description": "Movement control measures and lockdowns begin across multiple countries.",
+    },
+    40: {
+        "title": "COVID ENDEMIC IN THAILAND",
+        "description": "Thailand begins transitioning toward endemic COVID management policies.",
+    },
+    50: {
+        "title": "HOSPITALS UNDER PRESSURE",
+        "description": "Healthcare systems face rising pressure due to increasing infection rates.",
+    },
+    60: {
+        "title": "MASK MANDATES EXPANDED",
+        "description": "Public mask mandates are expanded in major cities and transportation hubs.",
+    },
+    70: {
+        "title": "ECONOMIC SLOWDOWN",
+        "description": "Regional economies experience major slowdowns due to pandemic restrictions.",
+    },
+    80: {
+        "title": "REMOTE LEARNING INTRODUCED",
+        "description": "Schools and universities transition to online learning systems.",
+    },
+    90: {
+        "title": "VACCINE DEVELOPMENT PROGRESSES",
+        "description": "Global vaccine development efforts begin showing positive results.",
+    },
+    100: {
+        "title": "SOUTHEAST ASIA ADAPTS TO NEW NORMAL",
+        "description": "Countries continue adapting to long-term pandemic management strategies.",
+    },
+}
+
 LEADERS = {
     "Malaysia": "Mahathir Mohamad",
     "Singapore": "Lawrence Wong",
@@ -22,6 +67,22 @@ LEADERS = {
     "Brunei": "Hassanal Bolkiah",
     "Timor_Leste" : "José Ramos-Horta"
 }
+
+CAPITAL_PROVINCES = {
+    "Malaya_17": "Kuala Lumpur",
+    "Singapore_01": "Singapore",
+    "Siam_23": "Bangkok",
+    "Cambodia_22": "Phnom Penh",
+    "Southern_Indochina_19": "Ho Chi Minh",
+    "Laos_18": "Vientiane",
+    "Pegu_02": "Naypyidaw",
+    "Brunei_02": "Brunei",
+    "Manila_04": "Manila",
+    "Java_03": "Jakarta",
+    "Portugese_Timor_03": "Dili",
+}
+
+CAPITAL_STABILITY_PENALTY = 3.0
 
 
 def tacticalmapfill(colorvalue):
@@ -321,6 +382,175 @@ def getbadgehitprovinceid(mouseposition, badgehitlist):
         if badgeentry["rect"].collidepoint(mouseposition):
             return badgeentry["provinceid"]
     return None
+
+
+def getcapitalhitprovinceid(mouseposition, capitalhitlist):
+    for capitalentry in reversed(capitalhitlist):
+        if capitalentry["rect"].collidepoint(mouseposition):
+            return capitalentry["provinceid"]
+    return None
+
+
+def makecapitalmarkersurface(size=28):
+    markersurface = pygame.Surface((size, size), pygame.SRCALPHA)
+    center = size // 2
+    outerradius = max(8, size // 2 - 2)
+    innerradius = max(4, int(outerradius * 0.42))
+
+    pygame.draw.circle(markersurface, (8, 13, 22, 230), (center + 1, center + 2), outerradius)
+    pygame.draw.circle(markersurface, (229, 183, 76, 255), (center, center), outerradius)
+    pygame.draw.circle(markersurface, (29, 39, 56, 255), (center, center), outerradius - 3)
+
+    starpoints = []
+    for pointindex in range(10):
+        angle = -math.pi / 2 + pointindex * math.pi / 5
+        radius = innerradius if pointindex % 2 else outerradius - 7
+        starpoints.append((
+            center + math.cos(angle) * radius,
+            center + math.sin(angle) * radius,
+        ))
+    pygame.draw.polygon(markersurface, (255, 235, 151, 255), starpoints)
+    pygame.draw.polygon(markersurface, (96, 69, 20, 255), starpoints, 1)
+    return markersurface
+
+
+def loadcapitalflags(size=(34, 22)):
+    flags = {}
+    flagdirectory = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "flags"))
+    if not os.path.isdir(flagdirectory):
+        return flags
+
+    for filename in os.listdir(flagdirectory):
+        countryname, extension = os.path.splitext(filename)
+        if extension.lower() not in (".png", ".jpg", ".jpeg", ".bmp"):
+            continue
+        filepath = os.path.join(flagdirectory, filename)
+        try:
+            image = pygame.image.load(filepath).convert_alpha()
+            flags[countryname] = pygame.transform.smoothscale(image, size)
+        except pygame.error:
+            continue
+    return flags
+
+
+def getcapitalflag(capitalflaglookup, countryname):
+    if not countryname:
+        return None
+    countrykey = str(countryname).strip().replace(" ", "_")
+    return capitalflaglookup.get(countrykey)
+
+
+def drawcapitalmarkers(
+    surface,
+    provincemap,
+    zoomvalue,
+    camerax,
+    cameray,
+    copyshiftlist,
+    screenrectangle,
+    markersurface,
+):
+    capitalhitlist = []
+    if markersurface is None:
+        return capitalhitlist
+
+    for copyshift in copyshiftlist:
+        drawcamerax = camerax + copyshift
+        for provinceid in CAPITAL_PROVINCES:
+            province = provincemap.get(provinceid)
+            if not province:
+                continue
+
+            provincerectanglescreen = getscreenrectangle(province["rectangle"], zoomvalue, drawcamerax, cameray)
+            if not provincerectanglescreen.colliderect(screenrectangle):
+                continue
+
+            markerrect = markersurface.get_rect(center=provincerectanglescreen.center)
+            if not markerrect.colliderect(screenrectangle):
+                continue
+
+            surface.blit(markersurface, markerrect)
+            capitalhitlist.append({
+                "provinceid": provinceid,
+                "rect": markerrect,
+            })
+
+    return capitalhitlist
+
+
+def drawcapitalinfopopup(surface, provinceid, provincemap, zoomvalue, camerax, cameray, font, smallfont, capitalflaglookup):
+    if not provinceid or provinceid not in CAPITAL_PROVINCES:
+        return
+
+    province = provincemap.get(provinceid)
+    if not province:
+        return
+
+    cityname = CAPITAL_PROVINCES[provinceid]
+    ownercountry = getprovinceowner(province)
+    controllercountry = getprovincecontroller(province)
+    flagimage = getcapitalflag(capitalflaglookup, ownercountry)
+    titletext = font.render(cityname, True, (245, 238, 218))
+    detailtext = smallfont.render("-3% stability each turn while captured", True, (229, 183, 76))
+    status = "Captured" if ownercountry and controllercountry and ownercountry != controllercountry else "Capital"
+    statustext = smallfont.render(status, True, (202, 209, 218))
+
+    flagwidth = flagimage.get_width() if flagimage else 0
+    contentwidth = max(titletext.get_width(), detailtext.get_width(), statustext.get_width())
+    popupwidth = max(240, 28 + flagwidth + (10 if flagimage else 0) + contentwidth + 20)
+    popupheight = 78
+
+    provincerectanglescreen = getscreenrectangle(province["rectangle"], zoomvalue, camerax, cameray)
+    popuprect = pygame.Rect(
+        provincerectanglescreen.centerx + 18,
+        provincerectanglescreen.centery - popupheight - 18,
+        popupwidth,
+        popupheight,
+    )
+    popuprect.clamp_ip(surface.get_rect())
+
+    shadow = pygame.Surface((popuprect.width + 8, popuprect.height + 8), pygame.SRCALPHA)
+    pygame.draw.rect(shadow, (0, 0, 0, 95), shadow.get_rect(), border_radius=6)
+    surface.blit(shadow, (popuprect.x - 3, popuprect.y - 2))
+    pygame.draw.rect(surface, (14, 22, 35), popuprect, border_radius=6)
+    pygame.draw.rect(surface, (229, 183, 76), popuprect, 1, border_radius=6)
+
+    drawx = popuprect.x + 14
+    drawy = popuprect.y + 14
+    if flagimage:
+        flagrect = flagimage.get_rect(topleft=(drawx, drawy + 5))
+        surface.blit(flagimage, flagrect)
+        drawx = flagrect.right + 10
+
+    surface.blit(titletext, (drawx, drawy))
+    surface.blit(statustext, (drawx, drawy + 24))
+    surface.blit(detailtext, (drawx, drawy + 44))
+
+
+def applycapitalstabilitypenalties(provincemap, playercountry, playerstability, countryeconomy):
+    penalizedcountries = set()
+    for provinceid in CAPITAL_PROVINCES:
+        province = provincemap.get(provinceid)
+        if not province:
+            continue
+
+        ownercountry = getprovinceowner(province)
+        controllercountry = getprovincecontroller(province)
+        if not ownercountry or not controllercountry or ownercountry == controllercountry:
+            continue
+        penalizedcountries.add(ownercountry)
+
+    for countryname in penalizedcountries:
+        if playercountry and countryname == playercountry:
+            playerstability = max(0.0, min(100.0, playerstability - CAPITAL_STABILITY_PENALTY))
+            continue
+
+        economystate = countryeconomy.get(countryname) if countryeconomy is not None else None
+        if economystate is not None:
+            currentstability = float(economystate.get("stability", 50.0))
+            economystate["stability"] = max(0.0, min(100.0, currentstability - CAPITAL_STABILITY_PENALTY))
+
+    return playerstability, penalizedcountries
 
 
 
@@ -771,10 +1001,23 @@ def drawloadingscreen(
 
 
 def main(eventbus=None, is_fullscreen=False):
+    global select_sound
+    
     if eventbus is None:
         eventbus = EventBus()
     startupbegintimestamp = time.perf_counter()
     pygame.init()
+    pygame.mixer.init()
+    
+    select_sound = pygame.mixer.Sound("game/sounds/troop_select.wav")
+    select_sound.set_volume(0.5)
+    
+    move_sound = pygame.mixer.Sound("game/sounds/troop_move.wav")
+    move_sound.set_volume(0.5)
+    
+    mahathir_speech = pygame.mixer.Sound("game/speeches/mahathir_speech.wav")
+    mahathir_speech.set_volume(0.7)
+    
     logstartupdiagnostics(startupbegintimestamp, "pygame init", f"python={platform.python_version()} pygame={pygame.version.ver}")
 
     # Set display mode once based on is_fullscreen
@@ -1122,6 +1365,14 @@ def main(eventbus=None, is_fullscreen=False):
         stateshape["subdivisions"] = subdivisionsforstate
 
     stateobjectlookup = {stateshape["id"]: stateshape for stateshape in stateshapelist}
+    countrycapitalprovinceidlookup = {}
+    for capitalprovinceid in CAPITAL_PROVINCES:
+        capitalprovince = provincemap.get(capitalprovinceid)
+        if not capitalprovince:
+            continue
+        capitalcountry = getprovinceowner(capitalprovince)
+        if capitalcountry:
+            countrycapitalprovinceidlookup[capitalcountry] = capitalprovinceid
 
 
 
@@ -2101,7 +2352,10 @@ def main(eventbus=None, is_fullscreen=False):
     troopbadgefont = pygame.font.SysFont("Arial", 16)
     countrylabelfont = pygame.font.SysFont("Arial", 18, bold=True)
     countrylabelcache = {}
+    capitalmarkersurface = makecapitalmarkersurface()
+    capitalflaglookup = loadcapitalflags()
     current_stats = {}
+    selectedcapitalprovinceid = None
     dragselectstart = None
     dragselectcurrent = None
     isdragselecting = False
@@ -2237,6 +2491,7 @@ def main(eventbus=None, is_fullscreen=False):
         screenrectangle = screen.get_rect()
         troopbadgelist = [] # store troop badge info
         troopbadgehitlist = []
+        capitalhitlist = []
 
 
         # ESO optimization 22/04
@@ -2505,12 +2760,14 @@ def main(eventbus=None, is_fullscreen=False):
                        badgebackground = (16, 18, 24)
                        badgeborder = (212, 169, 77)
 
+                   isentrenchedprovince = movementmodule.isprovinceentrenched(province, currentturnnumber)
                    troopbadgelist_raw.append({
                        "center": provincerectanglescreen.center,
                        "troops": province["troops"],
                        "country": getprovincecontroller(province),
                        "backgroundcolor": badgebackground,
                        "bordercolor": badgeborder,
+                       "entrenched": isentrenchedprovince,
                    })
 
                    troopbadgerect = gui_gettroopbadgerect(
@@ -2572,6 +2829,30 @@ def main(eventbus=None, is_fullscreen=False):
                 countrylabelcache,
                 gamephase,
             )
+
+        if gamephase == "play":
+            capitalhitlist = drawcapitalmarkers(
+                screen,
+                playableprovincemap,
+                zoomvalue,
+                camerax,
+                cameray,
+                copyshiftlist,
+                screenrectangle,
+                capitalmarkersurface,
+            )
+            if selectedcapitalprovinceid in CAPITAL_PROVINCES:
+                drawcapitalinfopopup(
+                    screen,
+                    selectedcapitalprovinceid,
+                    playableprovincemap,
+                    zoomvalue,
+                    camerax,
+                    cameray,
+                    normalfont,
+                    smallfont,
+                    capitalflaglookup,
+                )
 
         frontlineborderedgelist = []
         frontlineedgebykey = {}
@@ -2944,6 +3225,8 @@ def main(eventbus=None, is_fullscreen=False):
                     provincemap,
                     emit=eventbus.emit,
                     currentturnnumber=currentturnnumber,
+                    provincegraph=provincegraph,
+                    countrycapitalprovinceidlookup=countrycapitalprovinceidlookup,
                 )
                 countrybordersdirty = True
                 focuseffectcontext = FocusEffectContext(
@@ -2980,6 +3263,12 @@ def main(eventbus=None, is_fullscreen=False):
                     movementorderlist,
                     currentturnnumber,
                 )
+                playerstability, _ = applycapitalstabilitypenalties(
+                    provincemap,
+                    playercountry,
+                    playerstability,
+                    npcdirector.countryeconomy,
+                )
                 if researching_node_id and researching_turns_remaining > 0:
                     researching_turns_remaining -= 1
                     if researching_turns_remaining <= 0:
@@ -2992,6 +3281,20 @@ def main(eventbus=None, is_fullscreen=False):
                         researching_node_id = None
                 frontlineupdates.update(refreshfrontlines(allowautoadvance=False))
                 currentturnnumber += 1
+                
+                if currentturnnumber in COVID_NEWS_EVENTS:
+                    news = COVID_NEWS_EVENTS[currentturnnumber]
+
+                    newssystem.pushnews(
+                        title=news["title"],
+                        description=news["description"],
+                        imagekey="placeholder",
+                        priority=3,
+                    )
+                
+                if currentturnnumber == 2 and playercountry.lower() == "malaysia":
+                    mahathir_speech.play()
+                                      
                 routepreviewset = frontlineupdates
                 updatescriptengine()
                 eventbus.emit(
@@ -3123,6 +3426,7 @@ def main(eventbus=None, is_fullscreen=False):
                 elif gamephase == "play":
                     runtimeui.select_map_country(None)
                     current_stats = {}
+                    selectedcapitalprovinceid = None
 
                 if gamephase == "play" and frontlineplacementmode:
                     if hoveredfrontlineedgekey and hoveredfrontlineedgekey in frontlineedgebykey:
@@ -3179,6 +3483,26 @@ def main(eventbus=None, is_fullscreen=False):
 
                     if eventmappos is None or not pygame.Rect(0, 0, maprect.width, maprect.height).collidepoint(eventmappos):
                         continue
+                    clickedcapitalprovinceid = getcapitalhitprovinceid(eventmappos, capitalhitlist)
+                    if clickedcapitalprovinceid:
+                        select_sound.play()
+                        selectedcapitalprovinceid = clickedcapitalprovinceid
+                        selectedprovinceid = clickedcapitalprovinceid
+                        selectedprovinceidset = {clickedcapitalprovinceid}
+                        selectedprovince = provincemap.get(clickedcapitalprovinceid)
+                        expandedstateid = selectedprovince.get("parentid", hoveredstateid) if selectedprovince else hoveredstateid
+                        routepreviewset = set()
+                        countrymenutarget = None
+                        if selectedprovince:
+                            eventbus.emit(
+                                EngineEventType.PROVINCESELECTED,
+                                {
+                                    "provinceId": selectedprovinceid,
+                                    "stateId": selectedprovince.get("parentid"),
+                                    "country": getprovincecontroller(selectedprovince),
+                                },
+                            )
+                        continue
                     dragselectstart = eventmappos
                     dragselectcurrent = eventmappos
                     isdragselecting = True
@@ -3231,6 +3555,7 @@ def main(eventbus=None, is_fullscreen=False):
 
                 clickedbadgeprovinceid = getbadgehitprovinceid(eventmappos, troopbadgehitlist)
                 if clickedbadgeprovinceid:
+                    select_sound.play()
                     selectedprovince = provincemap.get(clickedbadgeprovinceid)
                     if selectedprovince and getprovincecontroller(selectedprovince) == playercountry:
                         selectedprovinceid = clickedbadgeprovinceid
@@ -3251,6 +3576,7 @@ def main(eventbus=None, is_fullscreen=False):
                         continue
 
                 if hoveredprovinceid:
+                    select_sound.play()
                     selectedprovince = provincemap.get(hoveredprovinceid)
                     if selectedprovince and getprovincecontroller(selectedprovince) == playercountry:
                         selectedprovinceid = hoveredprovinceid
@@ -3408,6 +3734,10 @@ def main(eventbus=None, is_fullscreen=False):
                     continue
 
                 routepreviewset = set()
+                
+                if sourceprovinceidlist:
+                    move_sound.play()
+                    
                 for sourceprovinceid in sourceprovinceidlist:
                     if sourceprovinceid == hoveredprovinceid:
                         continue
@@ -3439,7 +3769,9 @@ def main(eventbus=None, is_fullscreen=False):
                     moveorderapcost = economyconfig.get("moveorderapcost", 10)
                     if not developmentmode:
                         playerap = max(0, playerap - moveorderapcost)
-
+                        
+                    move_sound.play()
+                    
                     movementorderlist.append(
                         {
                             "amount": movingtroopcount,
@@ -3486,6 +3818,8 @@ def main(eventbus=None, is_fullscreen=False):
                         provincemap,
                         emit=eventbus.emit,
                         currentturnnumber=currentturnnumber,
+                        provincegraph=provincegraph,
+                        countrycapitalprovinceidlookup=countrycapitalprovinceidlookup,
                     )
                     countrybordersdirty = True
                     focuseffectcontext = FocusEffectContext(
@@ -3521,6 +3855,12 @@ def main(eventbus=None, is_fullscreen=False):
                     npcdirector.executeturn(
                         movementorderlist,
                         currentturnnumber,
+                    )
+                    playerstability, _ = applycapitalstabilitypenalties(
+                        provincemap,
+                        playercountry,
+                        playerstability,
+                        npcdirector.countryeconomy,
                     )
                     if researching_node_id and researching_turns_remaining > 0:
                         researching_turns_remaining -= 1
