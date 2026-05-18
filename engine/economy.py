@@ -3,17 +3,17 @@ from .movement import getprovincecontroller
 
 #PLACEHOLDER, EACH COUNTRY WILL HAVE THEIR OWN ECONOMY CONFIG LATER
 defaulteconomy = {
-    "startinggold": 1200,
-    "startingpopulation": 2500,
+    "startinggold": 12000,
+    "startingpopulation": 25000,
     "startingstability": 50.0,
     "startingpp": 200,
     "startingap": 100,
-    "recruitamount": 100,
+    "recruitamount": 1000,
     "recruitgoldcostperunit": 1,
     "recruitpopulationcostperunit": 1,
-    "mingoldincome": 5,
+    "mingoldincome": 50,
     "goldincomedivisor": 5,
-    "minpopulationgrowth": 10,
+    "minpopulationgrowth": 100,
     "populationgrowthdivisor": 3,
     "populationgrowthbonus": 0,
     "stabilitychangemin": -1,
