@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import random
 import time
 import platform
 import pygame
@@ -124,7 +125,7 @@ from . import npc as npcmodule
 from .events import EventBus, EngineEventType
 
 
-from .apicalltest.newsbannereventtest import NewsSystem, NewsPopup # TEST API CALL
+
 
 
 # THIS FILE IS A MESS!!!!
@@ -1489,6 +1490,8 @@ def main(eventbus=None, is_fullscreen=False):
     warpairset = set()
     warrecordlookup = {}
     occupationtransferlookup = {}
+    capitulationtimer = {}
+    capitulatedset = set()
     countrymenutarget = None
     researched_set: set[str] = set()
     researching_node_id: str | None = None
@@ -1813,6 +1816,91 @@ def main(eventbus=None, is_fullscreen=False):
         data["wars"] = wars
         data["active_war_count"] = len(wars)
         return data
+
+    def executecapitulation(defeatedcountry, victoriouscountry):
+        if defeatedcountry in capitulatedset:
+            return
+        capitulatedset.add(defeatedcountry)
+
+        aggressorcolor = countrytocolorlookup.get(victoriouscountry, (85, 85, 85))
+        for province in provincemap.values():
+            owner = getprovinceowner(province)
+            prevcontroller = getprovincecontroller(province)
+
+            if owner == defeatedcountry:
+                setprovincecontroller(province, victoriouscountry, aggressorcolor)
+            elif prevcontroller == defeatedcountry:
+                actualowner = getprovinceowner(province)
+                ownercolor = countrytocolorlookup.get(actualowner, (85, 85, 85))
+                setprovincecontroller(province, actualowner, ownercolor)
+            else:
+                continue
+
+            eventbus.emit(EngineEventType.PROVINCECONTROLCHANGED, {
+                "provinceId": province.get("id"),
+                "previousController": prevcontroller,
+                "newController": getprovincecontroller(province),
+            })
+
+        for pair in list(warpairset):
+            if defeatedcountry in pair:
+                warrecordlookup.pop(pair, None)
+                warpairset.discard(pair)
+
+        countriesatwarset.discard(defeatedcountry)
+        capitulationtimer.pop(defeatedcountry, None)
+        nonlocal countrybordersdirty
+        countrybordersdirty = True
+
+        eventbus.emit(EngineEventType.CAPITULATED, {
+            "defender": defeatedcountry,
+            "aggressor": victoriouscountry,
+            "turn": currentturnnumber,
+        })
+
+        pushnotification(
+            "CAPITULATION",
+            f"{defeatedcountry} has capitulated to {victoriouscountry}!",
+        )
+
+    def checkcapitulations():
+        metrics = buildwarcountrymetrics()
+        totalvp = metrics["totalvp"]
+        ownedcontrolledvp = metrics["ownedcontrolledvp"]
+        totalprovinces = metrics["totalprovinces"]
+        ownedcontrolledprovinces = metrics["ownedcontrolledprovinces"]
+
+        for pair in list(warpairset):
+            record = warrecordlookup.get(pair)
+            if not record:
+                continue
+            aggressor = record.get("aggressor")
+            defender = record.get("defender")
+            if not aggressor or not defender:
+                continue
+            if defender in capitulatedset:
+                continue
+
+            defendertotalvp = totalvp.get(defender, 0.0)
+            if defendertotalvp <= 0:
+                continue
+            aggressorcapturedvp = ownedcontrolledvp.get((defender, aggressor), 0.0)
+            progress = (aggressorcapturedvp / defendertotalvp) * 100.0
+
+            if progress >= 80.0:
+                if defender not in capitulationtimer:
+                    defenderstability = playerstability if defender == playercountry else npcdirector.countryeconomy.get(defender, {}).get("stability", 50.0)
+                    graceturns = int(10 + (defenderstability / 100.0) * 30)
+                    capitulationtimer[defender] = {
+                        "capitulateturn": currentturnnumber + graceturns,
+                        "aggressor": aggressor,
+                    }
+                    pushnotification(
+                        "CAPITULATION RISK",
+                        f"{defender} is at risk of capitulation in {graceturns} turns.",
+                    )
+                elif currentturnnumber >= capitulationtimer[defender]["capitulateturn"]:
+                    executecapitulation(defender, capitulationtimer[defender]["aggressor"])
 
     def nextfrontlineid():
         nonlocal frontlineassignmentcounter
@@ -2343,9 +2431,30 @@ def main(eventbus=None, is_fullscreen=False):
             npcdirector.sync_player_wars(playercountry, countriesatwarset, warpairset=warpairset)
 
     devconsole = developmentconsole(enabled=developmentmode)
-    newssystem = NewsSystem(eventbus)
-    newssystem.start()
-    newspopup = NewsPopup()
+    notifications = []
+    _notif_id_counter = 0
+    def pushnotification(title, description):
+        nonlocal _notif_id_counter
+        _notif_id_counter += 1
+        notifications.append({
+            "id": _notif_id_counter,
+            "title": str(title),
+            "description": str(description),
+            "turn": currentturnnumber,
+            "read": False,
+        })
+    eventbus.subscribe(EngineEventType.WARDECLARED, lambda p: pushnotification(
+        "WAR DECLARED",
+        f"{p.get('attacker', '?')} declared war on {p.get('defender', '?')}!"
+    ))
+    eventbus.subscribe("newspopup", lambda p: pushnotification(
+        p.get("title", "NEWS UPDATE"),
+        p.get("description", "No description."),
+    ))
+    eventbus.subscribe("countrycollapsed", lambda p: pushnotification(
+        "COUNTRY COLLAPSED",
+        p.get("description", f"{p.get('country', '?')} has collapsed."),
+    ))
     scriptmanager = scriptengine.initscripts("scripts", autoload=True)
     # UI chrome + map viewport
     # runtime-owned font/caches (previously stored on EngineUI)
@@ -2969,7 +3078,7 @@ def main(eventbus=None, is_fullscreen=False):
         # switch back to the full window surface for UI chrome
         screen = screen_main
         warprogressdata = {}
-        if gamephase == "play" and warpairset and runtimeui.warprogressopen:
+        if gamephase == "play" and warpairset and (runtimeui.warprogressopen or runtimeui.active_left_tab == "COMBAT"):
             warprogressdata = buildwarprogressdata()
 
             
@@ -2998,12 +3107,7 @@ def main(eventbus=None, is_fullscreen=False):
                 "stability": stability,
                 "leader": base_stats.get("leader", "Unknown"),
             }
-       
         
-        notificationcount = len(getattr(newssystem, "queue", ()))
-        if getattr(newssystem, "current", None) is not None:
-            notificationcount += 1
-
         runtimeui.sync(
             gamephase,
             pendingcountry,
@@ -3040,7 +3144,7 @@ def main(eventbus=None, is_fullscreen=False):
                 "fps": clock.get_fps(),
                 "latency_ms": elapsedseconds * 1000.0,
             },
-            notificationcount=notificationcount,
+            notifications=notifications,
         )
         runtimeui.update(elapsedseconds)
         runtimeui.draw(screen)
@@ -3065,7 +3169,6 @@ def main(eventbus=None, is_fullscreen=False):
 
         #DRAW GUIS, ON TOP
         devconsole.draw(screen, normalfont, smallfont, clock, "dev console") # draw dev console after ui so that it appears on top
-        newspopup.draw(screen, (titlefont, normalfont), newssystem.current)
 
 
 
@@ -3081,6 +3184,12 @@ def main(eventbus=None, is_fullscreen=False):
                 continue
 
             if uiaction == InGameUI.actionpausemenu:
+                continue
+
+            if uiaction == "warprogress":
+                continue
+
+            if uiaction == "notification_scroll":
                 continue
 
             if runtimeui.pausemenuopen:
@@ -3263,6 +3372,7 @@ def main(eventbus=None, is_fullscreen=False):
                     movementorderlist,
                     currentturnnumber,
                 )
+                checkcapitulations()
                 playerstability, _ = applycapitalstabilitypenalties(
                     provincemap,
                     playercountry,
@@ -3285,11 +3395,9 @@ def main(eventbus=None, is_fullscreen=False):
                 if currentturnnumber in COVID_NEWS_EVENTS:
                     news = COVID_NEWS_EVENTS[currentturnnumber]
 
-                    newssystem.pushnews(
-                        title=news["title"],
-                        description=news["description"],
-                        imagekey="placeholder",
-                        priority=3,
+                    pushnotification(
+                        news["title"],
+                        news["description"],
                     )
                 
                 if currentturnnumber == 2 and playercountry.lower() == "malaysia":
@@ -3392,10 +3500,6 @@ def main(eventbus=None, is_fullscreen=False):
    
    
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if newssystem.current and newspopup.handleclick(event.pos):
-                    newssystem.closecurrent()
-                    continue
-
                 if devconsole.handleleftclick(event.pos):
                     continue
 
@@ -3856,6 +3960,7 @@ def main(eventbus=None, is_fullscreen=False):
                         movementorderlist,
                         currentturnnumber,
                     )
+                    checkcapitulations()
                     playerstability, _ = applycapitalstabilitypenalties(
                         provincemap,
                         playercountry,
@@ -3957,7 +4062,6 @@ def main(eventbus=None, is_fullscreen=False):
 
         pygame.display.flip()
 
-    newssystem.stop()
     pygame.quit()
 # loading screen and main loop ends
 

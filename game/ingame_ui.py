@@ -24,6 +24,9 @@ _C_TEXT_MUTED = (156, 163, 175)
 _C_SUCCESS = (67, 181, 129)
 _C_DANGER = (224, 93, 93)
 _C_INFO = (74, 143, 231)
+_C_POLICY_BROWN = (44, 27, 18)
+_C_POLICY_BROWN_DARK = (25, 15, 10)
+_C_POLICY_BROWN_LIGHT = (72, 43, 24)
 
 
 class Panel:
@@ -377,6 +380,7 @@ class InGameUI:
         self.playerpp = 0
         self.playerap = 0
         self._active_manpower = 0
+        self._combat_summary = {}
         self._manpower_cache_key = None
 
         self.recruitamount = 0
@@ -399,6 +403,16 @@ class InGameUI:
         self._warprogressdata = {}
         self.actionwarprogress = "warprogress"
         self._systemstatus = {"fps": 0.0, "latency_ms": 0.0}
+        self.notifications = []
+        self._expanded_notification = None
+        self._notification_scroll = 0
+        self._notification_max_scroll = 0
+        self._notification_card_rects = {}
+        self._notification_popup_rect = pygame.Rect(0, 0, 10, 10)
+        self._combat_popup_rect = pygame.Rect(0, 0, 10, 10)
+        self._policy_popup_rect = pygame.Rect(0, 0, 10, 10)
+        self._policy_focus_slot_rect = pygame.Rect(0, 0, 10, 10)
+        self._policy_dropdown_progress = 0.0
         self._notificationcount = 0
         self._startdate = date(2020, 1, 1)
         self._daysperturn = 5
@@ -901,6 +915,392 @@ class InGameUI:
             "accent": data.get("accent", _C_GOLD),
         }
 
+    def _draw_notification_popup(self, surface, mouse):
+        if self.active_left_tab != "NOTIFICATIONS":
+            self._notification_popup_rect = pygame.Rect(0, 0, 10, 10)
+            self._notification_card_rects = {}
+            return
+
+        anchor_rect = self.leftbar.item_rects.get("NOTIFICATIONS")
+        if anchor_rect is None:
+            self._notification_popup_rect = pygame.Rect(0, 0, 10, 10)
+            self._notification_card_rects = {}
+            return
+
+        popup_w = min(380, max(300, surface.get_width() - anchor_rect.right - 24))
+        popup_h = 424 if self.notifications else 104
+        popup_h = min(popup_h, max(104, surface.get_height() - self.topbar_height - 24))
+        popup_x = anchor_rect.right + 8
+        popup_y = anchor_rect.y
+        popup_x = max(12, min(surface.get_width() - popup_w - 12, popup_x))
+        popup_y = max(self.topbar_height + 8, min(surface.get_height() - popup_h - 12, popup_y))
+        popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
+        self._notification_popup_rect = popup_rect
+
+        self._draw_glass_panel(surface, popup_rect, radius=8, border=_C_GOLD, glow=True)
+        content_rect = popup_rect.inflate(-24, -22)
+        self._draw_notifications_panel(surface, content_rect, mouse)
+
+    def _wrap_notification_text(self, text, font, max_width):
+        words = str(text or "").split(" ")
+        lines = []
+        current_line = ""
+        for word in words:
+            test_line = f"{current_line} {word}".strip()
+            if current_line and font.size(test_line)[0] > max_width:
+                lines.append(current_line)
+                current_line = word
+            else:
+                current_line = test_line
+        if current_line:
+            lines.append(current_line)
+        return lines
+
+    def _draw_notifications_panel(self, surface, content_rect, mouse):
+        self._notification_card_rects = {}
+        header = self.font_bold.render("NOTIFICATIONS", True, _C_GOLD_BRIGHT)
+        surface.blit(header, (content_rect.x, content_rect.y))
+
+        if not self.notifications:
+            empty_text = self.font.render("No notifications.", True, _C_TEXT_MUTED)
+            surface.blit(empty_text, (content_rect.x, content_rect.y + 30))
+            self._notification_scroll = 0
+            self._notification_max_scroll = 0
+            return
+
+        card_x = content_rect.x
+        card_w = content_rect.width
+        card_y_start = content_rect.y + 30
+        card_h = 48
+        min_expanded_h = 120
+        gap = 6
+        bottom_padding = 18
+        max_visible = max(1, content_rect.bottom - card_y_start)
+
+        total_h = 0
+        expanded_height_lookup = {}
+        for idx in range(len(self.notifications)):
+            h = card_h
+            if self._expanded_notification == idx:
+                desc = str(self.notifications[idx].get("description", ""))
+                lines = self._wrap_notification_text(desc, self.font, card_w - 20)
+                h = max(min_expanded_h, 46 + len(lines) * 18 + 14)
+                expanded_height_lookup[idx] = h
+            total_h += h + gap
+        total_h += bottom_padding
+        max_scroll = max(0, total_h - max_visible)
+        self._notification_max_scroll = max_scroll
+        self._notification_scroll = max(0, min(self._notification_scroll, max_scroll))
+        y = card_y_start - self._notification_scroll
+
+        for reverse_idx, notif in enumerate(reversed(self.notifications)):
+            idx = len(self.notifications) - 1 - reverse_idx
+            is_expanded = (self._expanded_notification == idx)
+            notif_h = expanded_height_lookup.get(idx, card_h) if is_expanded else card_h
+            card_rect = pygame.Rect(card_x, y, card_w, notif_h)
+
+            if y + notif_h > content_rect.y and y < content_rect.bottom:
+                accent = _C_GOLD if not notif.get("read") else _C_STEEL
+                self._draw_glass_panel(surface, card_rect, radius=6, border=accent)
+                inner = card_rect.inflate(-10, -6)
+                turn_label = self.small_font.render(f"T{notif.get('turn', '?')}", True, _C_TEXT_MUTED)
+                surface.blit(turn_label, (inner.x, inner.y + 2))
+                title_surf = self.font_bold.render(str(notif.get("title", "")), True, _C_TEXT)
+                title_x = inner.x + turn_label.get_width() + 10
+                title_max = inner.width - turn_label.get_width() - 10
+                self._draw_text_fit(surface, notif.get("title", ""), _C_TEXT, title_x, inner.y + 2, title_max, self.font_bold)
+
+                if is_expanded:
+                    desc = str(notif.get("description", ""))
+                    desc_lines = self._wrap_notification_text(desc, self.font, inner.width - 10)
+                    line_y = inner.y + 28
+                    for line in desc_lines:
+                        line_surf = self.font.render(line, True, _C_TEXT_MUTED)
+                        surface.blit(line_surf, (inner.x + 2, line_y))
+                        line_y += 18
+                        if line_y > card_rect.bottom - 6:
+                            break
+
+            self._notification_card_rects[idx] = card_rect
+            y += notif_h + gap
+
+        if max_scroll > 0:
+            track_rect = pygame.Rect(content_rect.right - 5, card_y_start, 4, max_visible)
+            pygame.draw.rect(surface, (39, 51, 68), track_rect, border_radius=2)
+            thumb_h = max(28, int(max_visible * (max_visible / max(total_h, 1))))
+            thumb_y = track_rect.y + int((track_rect.height - thumb_h) * (self._notification_scroll / max_scroll))
+            pygame.draw.rect(surface, _C_GOLD, pygame.Rect(track_rect.x, thumb_y, track_rect.width, thumb_h), border_radius=2)
+
+    def _draw_combat_popup(self, surface, mouse):
+        if self.active_left_tab != "COMBAT":
+            self._combat_popup_rect = pygame.Rect(0, 0, 10, 10)
+            return
+
+        anchor_rect = self.leftbar.item_rects.get("COMBAT")
+        if anchor_rect is None:
+            self._combat_popup_rect = pygame.Rect(0, 0, 10, 10)
+            return
+
+        popup_w = min(380, max(300, surface.get_width() - anchor_rect.right - 24))
+        popup_h = 302
+        popup_x = anchor_rect.right + 8
+        popup_y = anchor_rect.y
+        popup_x = max(12, min(surface.get_width() - popup_w - 12, popup_x))
+        popup_y = max(self.topbar_height + 8, min(surface.get_height() - popup_h - 12, popup_y))
+        popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
+        self._combat_popup_rect = popup_rect
+
+        self._draw_glass_panel(surface, popup_rect, radius=8, border=_C_GOLD, glow=True)
+        content_rect = popup_rect.inflate(-24, -22)
+        surface.blit(self.font_bold.render("COMBAT", True, _C_GOLD_BRIGHT), (content_rect.x, content_rect.y))
+
+        data = self._warprogressdata or {}
+        wars = [war for war in data.get("wars", []) if isinstance(war, dict)]
+        if not wars and data.get("aggressor") and data.get("defender"):
+            wars = [data]
+        wins = 0
+        losses = 0
+        for war in wars:
+            progress = float(war.get("progress", 0.0) or 0.0)
+            defender_progress = float(war.get("defender_progress", 0.0) or 0.0)
+            if self.playercountry == war.get("aggressor"):
+                own_pressure = progress
+                enemy_pressure = defender_progress
+            elif self.playercountry == war.get("defender"):
+                own_pressure = defender_progress
+                enemy_pressure = progress
+            else:
+                own_pressure = progress
+                enemy_pressure = defender_progress
+            if own_pressure > enemy_pressure + 5.0:
+                wins += 1
+            elif enemy_pressure > own_pressure + 5.0:
+                losses += 1
+
+        active_wars = len(wars) if wars else len(self._countriesatwarset or ())
+        summary = self._combat_summary or {}
+        preparedness = max(0.0, min(100.0, float(summary.get("preparedness", 0.0) or 0.0)))
+        avg_strength = float(summary.get("avg_strength", 0.0) or 0.0)
+        if active_wars <= 0:
+            status = "N/A"
+            status_detail = "No active wars"
+            status_color = _C_STEEL
+        else:
+            status = "Advantage" if wins > losses else ("Under Pressure" if losses > wins else "Contested")
+            status_detail = f"War pressure W/L {wins}-{losses}"
+            status_color = _C_SUCCESS if wins > losses else (_C_DANGER if losses > wins else _C_GOLD_BRIGHT)
+
+        chip_gap = 8
+        chip_w = (content_rect.width - chip_gap) // 2
+        chip_y = content_rect.y + 30
+        self._draw_metric_chip(
+            surface,
+            pygame.Rect(content_rect.x, chip_y, chip_w, 48),
+            "Manpower",
+            self._format_compact_number(self._active_manpower),
+            icon_key="manpower",
+            accent=_C_INFO,
+        )
+        self._draw_metric_chip(
+            surface,
+            pygame.Rect(content_rect.x + chip_w + chip_gap, chip_y, chip_w, 48),
+            "Avg Strength",
+            self._format_compact_number(avg_strength),
+            icon_key="combat",
+            accent=_C_DANGER,
+        )
+
+        chip_y += 58
+        self._draw_metric_chip(
+            surface,
+            pygame.Rect(content_rect.x, chip_y, chip_w, 48),
+            "Prepared",
+            f"{preparedness:.0f}%",
+            icon_key="logistics",
+            accent=_C_SUCCESS,
+        )
+        self._draw_metric_chip(
+            surface,
+            pygame.Rect(content_rect.x + chip_w + chip_gap, chip_y, chip_w, 48),
+            "Wars",
+            str(active_wars),
+            icon_key="intel",
+            accent=_C_GOLD,
+        )
+
+        status_rect = pygame.Rect(content_rect.x, chip_y + 58, content_rect.width, 48)
+        self._draw_vertical_gradient_rect(surface, status_rect, (31, 42, 62), (9, 15, 24), radius=8)
+        pygame.draw.rect(surface, status_color, status_rect, 1, border_radius=8)
+        pygame.draw.rect(surface, (*status_color, 42), status_rect.inflate(-2, -2), 1, border_radius=7)
+        status_icon = self._topbar_icons.get("combat")
+        icon_box = pygame.Rect(status_rect.x + 10, status_rect.y + 10, 28, 28)
+        self._draw_vertical_gradient_rect(surface, icon_box, (37, 49, 72), (14, 21, 35), radius=6)
+        pygame.draw.rect(surface, status_color, icon_box, 1, border_radius=6)
+        if status_icon is not None:
+            small_icon = pygame.transform.smoothscale(status_icon, (18, 18))
+            surface.blit(small_icon, small_icon.get_rect(center=icon_box.center))
+
+        status_pill_text = self.small_font_bold.render(status.upper(), True, status_color)
+        status_pill_w = min(148, status_pill_text.get_width() + 24)
+        status_pill = pygame.Rect(status_rect.right - status_pill_w - 10, status_rect.y + 11, status_pill_w, 26)
+        self._draw_vertical_gradient_rect(surface, status_pill, (22, 31, 47), (8, 13, 22), radius=13)
+        pygame.draw.rect(surface, status_color, status_pill, 1, border_radius=13)
+        surface.blit(status_pill_text, status_pill_text.get_rect(center=status_pill.center))
+
+        status_x = icon_box.right + 10
+        surface.blit(self.small_font_bold.render("FRONT STATUS", True, _C_TEXT_MUTED), (status_x, status_rect.y + 8))
+        self._draw_text_fit(
+            surface,
+            status_detail,
+            _C_TEXT,
+            status_x,
+            status_rect.y + 25,
+            status_pill.x - status_x - 12,
+            self.font_bold,
+        )
+
+        self._war_progress_rect = pygame.Rect(content_rect.x, content_rect.bottom - 42, content_rect.width, 34)
+        self._draw_glow_btn(
+            surface,
+            "warprogress",
+            self._war_progress_rect,
+            True,
+            "WAR PROGRESS",
+            mouse=mouse,
+        )
+
+    def _draw_policy_popup(self, surface, mouse):
+        if self.focusview.isopen:
+            self._policy_popup_rect = pygame.Rect(0, 0, 10, 10)
+            self._policy_focus_slot_rect = pygame.Rect(0, 0, 10, 10)
+            return
+
+        opening = self.active_left_tab == "NATIONAL POLICY"
+        progress = max(0.0, min(1.0, float(self._policy_dropdown_progress or 0.0)))
+        if not opening and progress <= 0.01:
+            self._policy_popup_rect = pygame.Rect(0, 0, 10, 10)
+            self._policy_focus_slot_rect = pygame.Rect(0, 0, 10, 10)
+            return
+
+        anchor_rect = self.leftbar.item_rects.get("NATIONAL POLICY")
+        if anchor_rect is None:
+            self._policy_popup_rect = pygame.Rect(0, 0, 10, 10)
+            self._policy_focus_slot_rect = pygame.Rect(0, 0, 10, 10)
+            return
+
+        full_h = 104
+        panel_gap = 6
+        panel_rect = pygame.Rect(anchor_rect.x, anchor_rect.bottom + panel_gap, anchor_rect.width, full_h)
+        max_bottom = min(surface.get_height() - 12, self.leftbar.rect.bottom - 12)
+        available_h = max_bottom - panel_rect.y
+        if available_h <= 8:
+            self._policy_popup_rect = pygame.Rect(0, 0, 10, 10)
+            self._policy_focus_slot_rect = pygame.Rect(0, 0, 10, 10)
+            return
+        if panel_rect.bottom > max_bottom:
+            panel_rect.height = min(panel_rect.height, available_h)
+        if panel_rect.height <= 8:
+            self._policy_popup_rect = pygame.Rect(0, 0, 10, 10)
+            self._policy_focus_slot_rect = pygame.Rect(0, 0, 10, 10)
+            return
+
+        eased = 1.0 - pow(1.0 - progress, 3)
+        visible_h = max(1, min(panel_rect.height, int(panel_rect.height * eased)))
+        visible_rect = pygame.Rect(panel_rect.x, panel_rect.y, panel_rect.width, visible_h)
+        self._policy_popup_rect = visible_rect
+        self._policy_focus_slot_rect = visible_rect if opening else pygame.Rect(0, 0, 10, 10)
+
+        shadow = pygame.Surface((visible_rect.width + 12, visible_rect.height + 12), pygame.SRCALPHA)
+        pygame.draw.rect(shadow, (0, 0, 0, 105), shadow.get_rect(), border_radius=10)
+        surface.blit(shadow, (visible_rect.x - 6, visible_rect.y - 2))
+
+        focusdata = self.focusview.data or {}
+        active_title = str(focusdata.get("activefocustitle") or "").strip()
+        active_id = focusdata.get("activefocusid")
+        active_focus = None
+        if active_id:
+            for focus in focusdata.get("focuses", ()):
+                if isinstance(focus, dict) and focus.get("id") == active_id:
+                    active_focus = focus
+                    break
+
+        panel_surface = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
+        panel_bounds = panel_surface.get_rect()
+        hovered = visible_rect.collidepoint(mouse)
+        top = _C_POLICY_BROWN_LIGHT if hovered else _C_POLICY_BROWN
+        pygame.draw.rect(panel_surface, _C_POLICY_BROWN_DARK, panel_bounds, border_radius=8)
+        self._draw_vertical_gradient_rect(panel_surface, panel_bounds, top, _C_POLICY_BROWN_DARK, radius=8)
+        pygame.draw.rect(panel_surface, (_C_GOLD if hovered else (112, 78, 44)), panel_bounds, 1, border_radius=8)
+        pygame.draw.line(panel_surface, _C_GOLD_BRIGHT, (14, 1), (panel_bounds.width - 14, 1), 1)
+
+        content_rect = panel_bounds.inflate(-18, -16)
+        if active_title:
+            icon_rect = pygame.Rect(content_rect.x, content_rect.y + 14, 46, 46)
+            pygame.draw.rect(panel_surface, (32, 20, 14), icon_rect, border_radius=6)
+            pygame.draw.rect(panel_surface, (122, 84, 49), icon_rect, 1, border_radius=6)
+            icon = None
+            if isinstance(active_focus, dict):
+                icon = self.focusview.loadimage(active_focus.get("icon"))
+            if icon is not None:
+                scaled_icon = pygame.transform.smoothscale(icon, (34, 34))
+                panel_surface.blit(scaled_icon, scaled_icon.get_rect(center=icon_rect.center))
+            else:
+                focus_mark = self.title_font.render("+", True, _C_GOLD_BRIGHT)
+                panel_surface.blit(focus_mark, focus_mark.get_rect(center=icon_rect.center))
+
+            text_x = icon_rect.right + 10
+            self._draw_text_fit(
+                panel_surface,
+                "RUNNING FOCUS",
+                _C_GOLD_BRIGHT,
+                text_x,
+                content_rect.y + 10,
+                content_rect.right - text_x,
+                self.small_font_bold,
+            )
+            self._draw_text_fit(
+                panel_surface,
+                active_title,
+                _C_TEXT,
+                text_x,
+                content_rect.y + 30,
+                content_rect.right - text_x,
+                self.font_bold,
+            )
+            remaining = active_focus.get("remainingturns") if isinstance(active_focus, dict) else None
+            progress = active_focus.get("progress") if isinstance(active_focus, dict) else None
+            total = active_focus.get("turnsrequired") if isinstance(active_focus, dict) else None
+            detail = "In progress"
+            if remaining is not None and total:
+                detail = f"{remaining} turns remaining  |  {progress}/{total}"
+            self._draw_text_fit(
+                panel_surface,
+                detail,
+                _C_TEXT_MUTED,
+                text_x,
+                content_rect.y + 50,
+                content_rect.right - text_x,
+                self.small_font,
+            )
+
+            if total:
+                try:
+                    fill_ratio = max(0.0, min(1.0, float(progress or 0) / float(total)))
+                except (TypeError, ValueError, ZeroDivisionError):
+                    fill_ratio = 0.0
+                bar_rect = pygame.Rect(text_x, content_rect.y + 71, content_rect.right - text_x, 7)
+                pygame.draw.rect(panel_surface, (30, 19, 13), bar_rect, border_radius=3)
+                fill_rect = bar_rect.copy()
+                fill_rect.width = int(bar_rect.width * fill_ratio)
+                if fill_rect.width > 0:
+                    pygame.draw.rect(panel_surface, _C_GOLD_BRIGHT, fill_rect, border_radius=3)
+        else:
+            select_text = self.font_bold.render("(select a national focus)", True, _C_GOLD_BRIGHT)
+            select_rect = select_text.get_rect(center=panel_bounds.center)
+            panel_surface.blit(select_text, select_rect)
+
+        surface.blit(panel_surface.subsurface(pygame.Rect(0, 0, panel_rect.width, visible_h)), panel_rect.topleft)
+
     def _draw_topbar_metric_popup(self, surface, mouse):
         metric_key = self._active_topbar_metric
         anchor_rect = self._topbar_metric_rects.get(metric_key)
@@ -970,7 +1370,6 @@ class InGameUI:
                 self._countrymenutarget
                 or self.bottom_buttons.selected == "PRODUCTION"
                 or self.bottom_buttons.selected == "TROOPS"
-                or self.active_left_tab == "COMBAT"
                 or self._selectedmapcountry
             )
 
@@ -1113,7 +1512,7 @@ class InGameUI:
         warprogressdata=None,
         selected_country_stats=None,
         systemstatus=None,
-        notificationcount=0,
+        notifications=None,
     ):
         self.gamephase = gamephase
         self.pendingcountry = pendingcountry
@@ -1154,9 +1553,10 @@ class InGameUI:
                 fps_val = 0.0
             self._fps_history.append(fps_val)
             if len(self._fps_history) > 42:
-                # keep most recent 42 samples
                 self._fps_history = self._fps_history[-42:]
-        self._notificationcount = max(0, int(notificationcount or 0))
+        if notifications is not None:
+            self.notifications = list(notifications)
+        self._notificationcount = len([n for n in self.notifications if not n.get("read")])
 
         self.applylayout()
 
@@ -1165,19 +1565,45 @@ class InGameUI:
         if cache_key != self._manpower_cache_key:
             self._manpower_cache_key = cache_key
             manpower = 0
+            controlled_count = 0
+            troop_province_count = 0
+            entrenchment_total = 0.0
             if self.playercountry and isinstance(provincemap, dict):
                 for province in provincemap.values():
                     if not isinstance(province, dict):
                         continue
                     controller = province.get("controllercountry", province.get("country"))
                     if controller == self.playercountry:
-                        manpower += int(province.get("troops", 0) or 0)
+                        controlled_count += 1
+                        troops = int(province.get("troops", 0) or 0)
+                        manpower += troops
+                        if troops > 0:
+                            troop_province_count += 1
+                            last_activity = int(province.get("lasttroopactivityturn", 0) or 0)
+                            entrenchment_total += max(0.0, min(1.0, (int(currentturnnumber or 0) - last_activity) / 3.0))
             self._active_manpower = manpower
+            avg_strength = 0 if troop_province_count <= 0 else manpower / troop_province_count
+            preparedness = 0.0 if troop_province_count <= 0 else (entrenchment_total / troop_province_count) * 100.0
+            self._combat_summary = {
+                "controlled_provinces": controlled_count,
+                "troop_provinces": troop_province_count,
+                "avg_strength": avg_strength,
+                "preparedness": preparedness,
+            }
         self._update_topbar_metric_rates()
 
     def update(self, elapsedseconds: float):
-        # retained for runtime compatibility
-        return
+        try:
+            dt = max(0.0, min(0.1, float(elapsedseconds or 0.0)))
+        except (TypeError, ValueError):
+            dt = 0.0
+
+        target = 1.0 if self.active_left_tab == "NATIONAL POLICY" and not self.focusview.isopen else 0.0
+        speed = 8.5
+        if self._policy_dropdown_progress < target:
+            self._policy_dropdown_progress = min(target, self._policy_dropdown_progress + dt * speed)
+        elif self._policy_dropdown_progress > target:
+            self._policy_dropdown_progress = max(target, self._policy_dropdown_progress - dt * speed)
 
     def _get_selected_division_entry(self):
         for entry in self._selectedtroopentries or ():
@@ -1195,6 +1621,15 @@ class InGameUI:
                 return None
             self.pausemenuopen = not self.pausemenuopen
             return self.actionpausemenu
+
+        if event.type == pygame.MOUSEWHEEL and self.active_left_tab == "NOTIFICATIONS":
+            mouse_pos = pygame.mouse.get_pos()
+            if self._notification_popup_rect.collidepoint(mouse_pos):
+                self._notification_scroll = max(
+                    0,
+                    min(self._notification_max_scroll, self._notification_scroll - int(event.y) * 42),
+                )
+                return "notification_scroll"
         
         if self.production_popup_open:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -1317,13 +1752,33 @@ class InGameUI:
 
         for item, rect in (self.leftbar.item_rects or {}).items():
             if rect.collidepoint(pos):
-                
+
                 self.ui_click_sound.play()
+                if item == "CLEAR ALL":
+                    self.notifications.clear()
+                    self._expanded_notification = None
+                    self._notification_scroll = 0
+                    return None
+                if item == "NOTIFICATIONS":
+                    self.active_left_tab = None if self.active_left_tab == "NOTIFICATIONS" else "NOTIFICATIONS"
+                    self.applylayout()
+                    return None
+                if item == "COMBAT":
+                    self.active_left_tab = None if self.active_left_tab == "COMBAT" else "COMBAT"
+                    self._countrymenutarget = None
+                    self._selectedmapcountry = None
+                    self.applylayout()
+                    return None
+                if item == "NATIONAL POLICY":
+                    self.active_left_tab = None if self.active_left_tab == "NATIONAL POLICY" else "NATIONAL POLICY"
+                    self._countrymenutarget = None
+                    self._selectedmapcountry = None
+                    self.applylayout()
+                    return None
                 self.active_left_tab = item
                 self.applylayout()
-                if item == "NATIONAL POLICY":
-                    self.focusview.toggleview()
-                    return self.actiontogglefocuspanel
+                if item == "NOTIFICATIONS":
+                    return None
                 return None
 
         for item, rect in (self.bottom_buttons.item_rects or {}).items():
@@ -1361,11 +1816,33 @@ class InGameUI:
             return None
 
 
+        if self.active_left_tab == "NOTIFICATIONS":
+            for idx, card_rect in (self._notification_card_rects or {}).items():
+                if card_rect.collidepoint(pos):
+                    self.ui_click_sound.play()
+                    if self._expanded_notification == idx:
+                        self._expanded_notification = None
+                    else:
+                        self._expanded_notification = idx
+                        if idx < len(self.notifications):
+                            self.notifications[idx]["read"] = True
+                        if card_rect.centery > self._notification_popup_rect.centery:
+                            self._notification_scroll = 999999
+                    return None
+
         if self.active_left_tab == "COMBAT" and not self._countrymenutarget:
             if self._war_progress_rect.collidepoint(pos):
                 self.ui_click_sound.play()
                 self.warprogressopen = not self.warprogressopen
                 return self.actionwarprogress
+        if self.active_left_tab == "NATIONAL POLICY":
+            if self._policy_focus_slot_rect.collidepoint(pos):
+                self.ui_click_sound.play()
+                self.active_left_tab = None
+                self._policy_dropdown_progress = 0.0
+                self.focusview.openview()
+                self.applylayout()
+                return self.actiontogglefocuspanel
         if self._selectedmapcountry and not self._countrymenutarget:
             if self._declarewar_rect.collidepoint(pos):
                 if (
@@ -1420,6 +1897,12 @@ class InGameUI:
         if self.topbar.rect.collidepoint(mouseposition):
             return True
         if self.rightbar.rect.collidepoint(mouseposition):
+            return True
+        if self.active_left_tab == "NOTIFICATIONS" and self._notification_popup_rect.collidepoint(mouseposition):
+            return True
+        if self.active_left_tab == "COMBAT" and self._combat_popup_rect.collidepoint(mouseposition):
+            return True
+        if self._policy_dropdown_progress > 0.01 and self._policy_popup_rect.collidepoint(mouseposition):
             return True
         if self.bottombar.rect.collidepoint(mouseposition):
             return True
@@ -1691,6 +2174,11 @@ class InGameUI:
         if self.focusview.isopen:
             self.focusview.draw(surface, self.title_font, self.font, mouse)
             self._draw_topbar_metric_popup(surface, mouse)
+            self._draw_notification_popup(surface, mouse)
+            self._draw_combat_popup(surface, mouse)
+            self._draw_policy_popup(surface, mouse)
+            if self.warprogressopen:
+                self._draw_war_progress_popup(surface, mouse)
             if self.pausemenuopen:
                 self._draw_pausemenu(surface)
             return
@@ -1698,6 +2186,11 @@ class InGameUI:
         if self.researchview.isopen:
             self.researchview.draw(surface, self.title_font, self.font, mouse)
             self._draw_topbar_metric_popup(surface, mouse)
+            self._draw_notification_popup(surface, mouse)
+            self._draw_combat_popup(surface, mouse)
+            self._draw_policy_popup(surface, mouse)
+            if self.warprogressopen:
+                self._draw_war_progress_popup(surface, mouse)
             if self.pausemenuopen:
                 self._draw_pausemenu(surface)
             return
@@ -1705,6 +2198,11 @@ class InGameUI:
         selected_tab = self.bottom_buttons.selected
         if not self.rightbar.rect.width:
             self._draw_topbar_metric_popup(surface, mouse)
+            self._draw_notification_popup(surface, mouse)
+            self._draw_combat_popup(surface, mouse)
+            self._draw_policy_popup(surface, mouse)
+            if self.warprogressopen:
+                self._draw_war_progress_popup(surface, mouse)
             if self.pausemenuopen:
                 self._draw_pausemenu(surface)
             return
@@ -1746,24 +2244,6 @@ class InGameUI:
                 mouse=mouse,
             )
             y_cursor += 130
-
-        elif self.active_left_tab == "COMBAT" and not self._countrymenutarget:
-            surface.blit(self.font_bold.render("War Operations", True, _C_GOLD_BRIGHT), (content_rect.x, y_cursor))
-            self._draw_text_fit(
-                surface,
-                "Monitor active theaters, victory-point control, casualties, and pressure.",
-                _C_TEXT_MUTED,
-                content_rect.x,
-                y_cursor + 26,
-                content_rect.width,
-                self.font,
-            )
-            self._war_progress_rect.topleft = (content_rect.x, content_rect.bottom - self._war_progress_rect.height)
-            self._draw_glow_btn(
-                surface, "warprogress", self._war_progress_rect,
-                True, "WAR PROGRESS", mouse=mouse,
-            )
-            y_cursor += 80
 
         elif self._selectedmapcountry and not self._countrymenutarget:
             big_flag = self._get_big_flag(self._selectedmapcountry, size=(240, 144))
@@ -1960,6 +2440,9 @@ class InGameUI:
             self._detach_regiment_rects = {}
 
         self._draw_topbar_metric_popup(surface, mouse)
+        self._draw_notification_popup(surface, mouse)
+        self._draw_combat_popup(surface, mouse)
+        self._draw_policy_popup(surface, mouse)
 
         if self.warprogressopen:
             self._draw_war_progress_popup(surface, mouse)

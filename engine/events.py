@@ -21,6 +21,7 @@ class EngineEventType(str, Enum):
     TROOPSRECRUITED = "troopsrecruited"
     FOCUSSTARTED = "focusstarted"
     FOCUSCOMPLETED = "focuscompleted"
+    CAPITULATED = "capitulated"
 
 
 # main event handling 
