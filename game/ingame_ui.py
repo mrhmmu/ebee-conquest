@@ -1779,7 +1779,7 @@ class InGameUI:
 
             stats = self._selected_country_stats or {}
             lines = [
-                f"Population: {self._format_number(stats.get('population', 0))}",
+                f"Armies: {self._format_number(stats.get('population', 0))}",
                 f"Manpower:   {self._format_number(stats.get('manpower', 0))}",
                 f"Stability:  {self._format_decimal(stats.get('stability', 0))}%",
                 f"Leader:     {stats.get('leader', 'Unknown')}",
