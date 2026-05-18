@@ -17,7 +17,7 @@ class PeaceTreatyScreen:
     def __init__(self):
         pygame.init()
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
-        pygame.display.set_caption("PEACE TREATY")
+        
         self.clock = pygame.time.Clock()
         self.title_font = pygame.font.SysFont("bahnschrift", 22, bold=True)  
         self.small_font = pygame.font.SysFont("arial narrow", 20)
@@ -169,7 +169,7 @@ class PeaceTreatyScreen:
         ebee_rect = ebee_surf.get_rect(midleft=(16, STATUS_BAR_HEIGHT // 2))
         self.screen.blit(ebee_surf, ebee_rect)
         
-        title_surf = self.title_font.render("PEACE TREATY", True, (240, 198, 116))
+        title_surf = self.title_font.render("PEACE CONFERENCE", True, (240, 198, 116))
         title_rect = title_surf.get_rect(center=(WIDTH // 2, STATUS_BAR_HEIGHT // 2))
         self.screen.blit(title_surf, title_rect)
 
