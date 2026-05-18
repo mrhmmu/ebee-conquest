@@ -2760,12 +2760,14 @@ def main(eventbus=None, is_fullscreen=False):
                        badgebackground = (16, 18, 24)
                        badgeborder = (212, 169, 77)
 
+                   isentrenchedprovince = movementmodule.isprovinceentrenched(province, currentturnnumber)
                    troopbadgelist_raw.append({
                        "center": provincerectanglescreen.center,
                        "troops": province["troops"],
                        "country": getprovincecontroller(province),
                        "backgroundcolor": badgebackground,
                        "bordercolor": badgeborder,
+                       "entrenched": isentrenchedprovince,
                    })
 
                    troopbadgerect = gui_gettroopbadgerect(
