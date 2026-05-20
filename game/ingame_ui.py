@@ -6,6 +6,19 @@ from datetime import date, timedelta
 import pygame
 
 from engine.gui import gui_drawtroopcountbadge, gui_mergetroopbadgeentries
+from game.animation.motion import (
+    AmbientParticleField,
+    PulseLayer,
+    draw_animated_icon,
+    draw_light_sweep,
+    draw_scanlines,
+    draw_soft_glow,
+    ease_out_cubic,
+    exp_lerp,
+    mix_color,
+    pulse,
+    scale_rect,
+)
 from .focusui import FocusTreeView
 from .researchui import ResearchTreeView
 
@@ -78,12 +91,14 @@ class LeftBar:
         statusdata=None,
         notification_count=0,
     ):
+        motion_time = pygame.time.get_ticks() / 1000.0
         icons = icons or {}
         statusdata = statusdata or {}
         notification_count = max(0, int(notification_count or 0))
         pygame.draw.rect(surface, _C_PANEL_DARK, self.rect)
         pygame.draw.rect(surface, (28, 38, 52), self.rect, 1)
         pygame.draw.line(surface, (76, 64, 38), self.rect.topright, self.rect.bottomright, 1)
+        draw_scanlines(surface, self.rect, motion_time, color=(74, 143, 231), alpha=8, spacing=34)
 
         self.item_rects = {}
         radius = 6
@@ -156,17 +171,24 @@ class LeftBar:
                         width=2,
                     )
                 surface.blit(glow_surf, (x - 10, y - 10))
+                draw_light_sweep(surface, rect, motion_time + item_index * 0.21, glowcolor, alpha=int(10 + glow * 26))
 
             if is_selected:
                 pygame.draw.rect(surface, _C_GOLD, pygame.Rect(rect.x, rect.y + 8, 3, rect.height - 16), border_radius=2)
 
             icon = icons.get(item_key)
             icon_x = x + 18
-            text_x = x + 54
+            text_x = x + 54 + int(glow * 4)
             if icon is not None:
-                icon_rect = icon.get_rect()
-                icon_rect.topleft = (icon_x, y + (h - icon_rect.height) // 2)
-                surface.blit(icon, icon_rect)
+                draw_animated_icon(
+                    surface,
+                    icon,
+                    (icon_x + icon.get_width() // 2, y + h // 2),
+                    motion_time,
+                    hover=0.65 if (hovered or is_selected) else 0.0,
+                    accent=_C_GOLD if is_selected else (92, 116, 144),
+                    phase=item_index * 0.7,
+                )
             else:
                 text_x = x + 18
 
@@ -191,8 +213,11 @@ class LeftBar:
             surface.blit(text, (text_x, y + (h - text.get_height()) // 2))
 
             if badge_text is not None and badge_rect is not None:
-                pygame.draw.rect(surface, _C_GOLD_BRIGHT, badge_rect, border_radius=4)
-                surface.blit(badge_text, badge_text.get_rect(center=badge_rect.center))
+                badge_scale = 1.0 + 0.06 * pulse(motion_time, 4.6)
+                badge_draw_rect = scale_rect(badge_rect, badge_scale)
+                draw_soft_glow(surface, badge_draw_rect, _C_GOLD_BRIGHT, 0.55 + 0.25 * pulse(motion_time, 5.2), radius=5, rings=3)
+                pygame.draw.rect(surface, _C_GOLD_BRIGHT, badge_draw_rect, border_radius=4)
+                surface.blit(badge_text, badge_text.get_rect(center=badge_draw_rect.center))
 
         status_rect = pygame.Rect(self.rect.x + 14, self.rect.bottom - 202, self.rect.width - 28, 184)
         if status_rect.height > 0 and status_rect.top > self.rect.y + 430:
@@ -259,6 +284,7 @@ class BottomButtons:
             self.selected = item
 
     def draw(self, surface: pygame.Surface, font: pygame.font.Font, mouse_pos, font_bold=None, icons=None):
+        motion_time = pygame.time.get_ticks() / 1000.0
         icons = icons or {}
         w = 142
         h = 64
@@ -276,6 +302,7 @@ class BottomButtons:
         pygame.draw.rect(dock_surface, (10, 15, 23, 176), dock_surface.get_rect(), border_radius=8)
         pygame.draw.rect(dock_surface, (44, 58, 76, 150), dock_surface.get_rect(), 1, border_radius=8)
         surface.blit(dock_surface, dock_rect.topleft)
+        draw_light_sweep(surface, dock_rect, motion_time, _C_GOLD_BRIGHT, alpha=16)
 
         self.item_rects = {}
         for i, item in enumerate(self.items):
@@ -319,6 +346,7 @@ class BottomButtons:
                         (11 - offset, 11 - offset, gw, gh),
                         border_radius=radius + offset, width=2)
                 surface.blit(glow_surf, (x - 11, y - 11))
+                draw_light_sweep(surface, rect, motion_time + i * 0.18, _C_GOLD_BRIGHT, alpha=int(10 + glow * 22))
 
             text_color = (226, 230, 234) if hovered else (200, 205, 210)
             if item == self.selected and not hovered:
@@ -326,10 +354,17 @@ class BottomButtons:
             active_font = font_bold if (hovered and font_bold) else font
             icon = icons.get(item)
             if icon is not None:
-                icon_rect = icon.get_rect(center=(rect.centerx, rect.y + 22))
-                surface.blit(icon, icon_rect)
+                draw_animated_icon(
+                    surface,
+                    icon,
+                    (rect.centerx, rect.y + 22),
+                    motion_time,
+                    hover=0.7 if (hovered or item == self.selected) else 0.0,
+                    accent=_C_GOLD_BRIGHT,
+                    phase=i * 0.55,
+                )
             text = active_font.render(item, True, text_color)
-            text_rect = text.get_rect(center=(rect.centerx, rect.y + 48))
+            text_rect = text.get_rect(center=(rect.centerx, rect.y + 48 + int(glow * 2)))
             surface.blit(text, text_rect)
 
 
@@ -390,6 +425,15 @@ class InGameUI:
         self._layout_cache_key = None
         self._merged_troop_badge_cache_key = None
         self._merged_troop_badge_cache = []
+        self._motion_time = 0.0
+        self._ambient_particles = AmbientParticleField(72, seed=203)
+        self._ui_pulses = PulseLayer()
+        self._drawer_progress = 0.0
+        self._choose_progress = 0.0
+        self._tooltip_progress = 0.0
+        self._last_turn_seen = None
+        self._last_resource_values = {}
+        self._metric_flash = {}
 
         self.recruitamount = 0
         self.recruitenabled = False
@@ -725,6 +769,30 @@ class InGameUI:
         self._draw_vertical_gradient_rect(surface, rect, (22, 31, 48), (9, 15, 24), radius=radius)
         pygame.draw.rect(surface, border, rect, 1, border_radius=radius)
         pygame.draw.line(surface, (41, 49, 60), (rect.x + 8, rect.y + 1), (rect.right - 8, rect.y + 1), 1)
+        if rect.width >= 64 and rect.height >= 32:
+            draw_light_sweep(surface, rect, self._motion_time, border, alpha=14 if not glow else 24)
+            if rect.height >= 90:
+                draw_scanlines(surface, rect, self._motion_time, color=(74, 143, 231), alpha=6, spacing=30)
+
+    def _draw_command_atmosphere(self, surface):
+        if self.map_rect.width <= 0 or self.map_rect.height <= 0:
+            return
+        map_rect = self.map_rect.clip(surface.get_rect())
+        if map_rect.width <= 0 or map_rect.height <= 0:
+            return
+        self._ambient_particles.draw(
+            surface,
+            map_rect,
+            self._motion_time,
+            color=(94, 160, 220),
+            parallax=(
+                (self._hovermousepos[0] - surface.get_width() * 0.5) * 0.012,
+                (self._hovermousepos[1] - surface.get_height() * 0.5) * 0.010,
+            ),
+        )
+
+    def _flash_metric(self, key, amount=1.0):
+        self._metric_flash[key] = max(float(amount), self._metric_flash.get(key, 0.0))
 
     def _draw_bottombar_background(self, surface):
         rect = self.bottombar.rect
@@ -751,6 +819,8 @@ class InGameUI:
         pygame.draw.line(surface, (25, 34, 47), rect.topleft, rect.topright, 1)
         pygame.draw.line(surface, (76, 64, 38), (rect.x, rect.bottom - 2), (rect.right, rect.bottom - 2), 1)
         pygame.draw.line(surface, _C_GOLD, (rect.x, rect.bottom - 1), (rect.right, rect.bottom - 1), 1)
+        draw_light_sweep(surface, rect, self._motion_time * 0.72, _C_GOLD_BRIGHT, alpha=16)
+        draw_scanlines(surface, rect, self._motion_time, color=(74, 143, 231), alpha=6, spacing=30)
 
     def _draw_map_edge_shadows(self, surface):
         rect = self.map_rect.clip(surface.get_rect())
@@ -815,39 +885,56 @@ class InGameUI:
         rect = pygame.Rect(x, y, chip_width, chip_height)
         hovered = rect.collidepoint(mouse)
         active = metric_key == self._active_topbar_metric
+        flash = self._metric_flash.get(metric_key, 0.0)
         glow = self._topbar_metric_glows.get(metric_key, 0.0)
-        if hovered or active:
+        if hovered or active or flash > 0.01:
             glow = min(1.0, glow + 0.14)
         else:
             glow = max(0.0, glow - 0.08)
         self._topbar_metric_glows[metric_key] = glow
+        visual_glow = max(glow, flash)
+        draw_rect = scale_rect(
+            rect,
+            1.0 + glow * 0.025 + flash * 0.055,
+            (0, -flash * 2),
+        )
 
-        if glow > 0.01:
-            glow_surface = pygame.Surface((rect.width + 24, rect.height + 24), pygame.SRCALPHA)
+        if visual_glow > 0.01:
+            glow_surface = pygame.Surface((draw_rect.width + 24, draw_rect.height + 24), pygame.SRCALPHA)
             for ring in range(4):
-                ring_alpha = int(glow * (38 - ring * 7))
+                ring_alpha = int(visual_glow * (38 - ring * 7))
                 if ring_alpha <= 0:
                     continue
                 offset = ring * 2 + 2
                 pygame.draw.rect(
                     glow_surface,
                     (*accent, ring_alpha),
-                    (12 - offset, 12 - offset, rect.width + offset * 2, rect.height + offset * 2),
+                    (12 - offset, 12 - offset, draw_rect.width + offset * 2, draw_rect.height + offset * 2),
                     width=2,
                     border_radius=8 + offset,
                 )
-            surface.blit(glow_surface, (rect.x - 12, rect.y - 12))
+            surface.blit(glow_surface, (draw_rect.x - 12, draw_rect.y - 12))
 
         border = accent if active else ((72, 88, 111) if hovered else (48, 62, 80))
-        self._draw_glass_panel(surface, rect, radius=6, border=border)
-        pygame.draw.line(surface, accent, (rect.x + 8, rect.y + 9), (rect.x + 8, rect.bottom - 9), 2)
+        if flash > 0.01:
+            border = mix_color(border, _C_GOLD_BRIGHT, flash)
+        self._draw_glass_panel(surface, draw_rect, radius=6, border=border)
+        pygame.draw.line(surface, accent, (draw_rect.x + 8, draw_rect.y + 9), (draw_rect.x + 8, draw_rect.bottom - 9), 2)
 
-        draw_x = rect.x + 20
+        draw_x = draw_rect.x + 20
         if icon is not None:
-            surface.blit(icon, (draw_x, rect.y + 12))
+            draw_animated_icon(
+                surface,
+                icon,
+                (draw_x + icon.get_width() // 2, draw_rect.y + draw_rect.height // 2),
+                self._motion_time,
+                hover=max(glow, flash) * 0.8 if (hovered or active) else 0.0,
+                accent=accent,
+                phase=len(metric_key) * 0.41,
+            )
             draw_x += icon.get_width() + 12
-        surface.blit(value_surface, (draw_x, rect.y + 9))
-        surface.blit(label_surface, (draw_x, rect.y + 32))
+        surface.blit(value_surface, (draw_x, draw_rect.y + 9))
+        surface.blit(label_surface, (draw_x, draw_rect.y + 32))
         if metric_key:
             self._topbar_metric_rects[metric_key] = rect
             self._topbar_metric_data[metric_key] = {
@@ -876,7 +963,11 @@ class InGameUI:
         if flag_img is not None:
             scaled_flag = pygame.transform.smoothscale(flag_img, (32, 22))
             flag_rect = scaled_flag.get_rect()
-            flag_rect.topleft = (draw_x, rect.y + (chip_height - flag_rect.height) // 2)
+            flag_rect.topleft = (
+                draw_x,
+                rect.y + (chip_height - flag_rect.height) // 2 + int(math.sin(self._motion_time * 2.4) * 1.5),
+            )
+            draw_soft_glow(surface, flag_rect.inflate(8, 6), _C_GOLD, 0.28 + 0.12 * pulse(self._motion_time, 2.0), radius=5, rings=3)
             surface.blit(scaled_flag, flag_rect)
             draw_x += scaled_flag.get_width() + flag_gap
 
@@ -1601,6 +1692,8 @@ class InGameUI:
         systemstatus=None,
         notifications=None,
     ):
+        previous_notification_count = self._notificationcount
+        previous_turn = self._last_turn_seen
         self.gamephase = gamephase
         self.pendingcountry = pendingcountry
         self.playercountry = playercountry
@@ -1644,6 +1737,16 @@ class InGameUI:
         if notifications is not None:
             self.notifications = list(notifications)
         self._notificationcount = len([n for n in self.notifications if not n.get("read")])
+        if self._notificationcount > previous_notification_count:
+            self._ui_pulses.emit(self.leftbar.rect.center, _C_GOLD_BRIGHT, radius=120, duration=0.8, width=3)
+
+        try:
+            turn_value = int(currentturnnumber or 0)
+        except (TypeError, ValueError):
+            turn_value = 0
+        if previous_turn is not None and turn_value != previous_turn:
+            self._ui_pulses.emit(self.map_rect.center, _C_SUCCESS, radius=220, duration=0.95, width=3)
+        self._last_turn_seen = turn_value
 
         self.applylayout()
 
@@ -1678,12 +1781,28 @@ class InGameUI:
                 "preparedness": preparedness,
             }
         self._update_topbar_metric_rates()
+        current_values = self._topbar_metric_values()
+        if self._last_resource_values:
+            for key, value in current_values.items():
+                old_value = self._last_resource_values.get(key, value)
+                if abs(float(value) - float(old_value)) > 0.001:
+                    self._flash_metric(key, 1.0)
+        self._last_resource_values = current_values
 
     def update(self, elapsedseconds: float):
         try:
             dt = max(0.0, min(0.1, float(elapsedseconds or 0.0)))
         except (TypeError, ValueError):
             dt = 0.0
+        self._motion_time += dt
+        self._ui_pulses.update(dt)
+        self._drawer_progress = exp_lerp(self._drawer_progress, 1.0 if self.rightbar.rect.width else 0.0, 6.8, dt)
+        self._choose_progress = exp_lerp(self._choose_progress, 1.0 if self.gamephase == "choosecountry" else 0.0, 6.0, dt)
+        self._tooltip_progress = exp_lerp(self._tooltip_progress, 1.0 if self._hovertext else 0.0, 11.0, dt)
+        for key in list(self._metric_flash.keys()):
+            self._metric_flash[key] = max(0.0, self._metric_flash[key] - dt * 1.65)
+            if self._metric_flash[key] <= 0.01:
+                del self._metric_flash[key]
 
         target = 1.0 if self.active_left_tab == "NATIONAL POLICY" and not self.focusview.isopen else 0.0
         speed = 8.5
@@ -1708,6 +1827,9 @@ class InGameUI:
                 return None
             self.pausemenuopen = not self.pausemenuopen
             return self.actionpausemenu
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            self._ui_pulses.emit(event.pos, _C_GOLD_BRIGHT, radius=82, duration=0.42, width=2)
 
         if event.type == pygame.MOUSEWHEEL and self.active_left_tab == "NOTIFICATIONS":
             mouse_pos = pygame.mouse.get_pos()
@@ -2003,6 +2125,7 @@ class InGameUI:
     
 
         if self.gamephase == "choosecountry":
+            self._draw_command_atmosphere(surface)
             # minimal UI only during choosecountry
             self._draw_topbar_background(surface)
             title = self.title_font.render("EBEE COMMAND", True, _C_GOLD_BRIGHT)
@@ -2039,6 +2162,7 @@ class InGameUI:
             if self.pendingcountry:
                 selected = self.font.render(f"Selected: {self.pendingcountry}", True, _C_TEXT)
                 surface.blit(selected, (self._choose_rect.x, self._choose_rect.y - 22))
+            self._ui_pulses.draw(surface)
 
             return
 
@@ -2046,6 +2170,7 @@ class InGameUI:
 
         # full UI chrome (play)
         self._draw_map_edge_shadows(surface)
+        self._draw_command_atmosphere(surface)
         if self.leftbar.rect.width:
             self.leftbar.draw(
                 surface,
@@ -2164,9 +2289,23 @@ class InGameUI:
                 continue
             cx = int(center[0] + self.map_rect.x)
             cy = int(center[1] + self.map_rect.y)
+            border_color = entry.get("bordercolor", (165, 165, 165))
+            badge_pulse = 0.25 + 0.35 * pulse(self._motion_time, 3.0, cx * 0.015 + cy * 0.011)
+            if border_color == _C_DANGER:
+                badge_pulse = 0.65 + 0.35 * pulse(self._motion_time, 5.2)
+            elif border_color == _C_GOLD:
+                badge_pulse = 0.45 + 0.35 * pulse(self._motion_time, 4.0)
+            draw_soft_glow(
+                surface,
+                pygame.Rect(cx - 26, cy - 16, 52, 32),
+                border_color,
+                badge_pulse,
+                radius=8,
+                rings=3,
+            )
             gui_drawtroopcountbadge(
                 surface,
-                (cx, cy),
+                (cx, cy + int(math.sin(self._motion_time * 2.3 + cx * 0.01) * 1.5)),
                 entry.get("troops", 0),
                 self.font,
                 self._badge_flags,
@@ -2218,7 +2357,10 @@ class InGameUI:
             x = max(0, min(surface.get_width() - box_w, x))
             y = max(0, min(surface.get_height() - box_h, y))
             rect = pygame.Rect(x, y, box_w, box_h)
+            tooltip_ease = ease_out_cubic(self._tooltip_progress)
+            rect = rect.move(int((1.0 - tooltip_ease) * 10), int((1.0 - tooltip_ease) * 8))
 
+            draw_soft_glow(surface, rect, _C_GOLD, 0.22 + tooltip_ease * 0.32, radius=7, rings=4)
             self._draw_glass_panel(surface, rect, radius=5, border=(126, 102, 58))
             ty = rect.y + padding
             for ts in text_surfs:
@@ -2250,7 +2392,16 @@ class InGameUI:
                 self._production_selection_rects[i] = pygame.Rect(x, y, btn_w, btn_h)
                 selected = self.production_selected == (i + 1)
                 label = f"selection {i + 1}"
-                self._draw_glow_btn(surface, f"prod_sel_{i}", self._production_selection_rects[i], True, label, primary=selected, mouse=mouse)
+                self._draw_glow_btn(
+                    surface,
+                    f"prod_sel_{i}",
+                    self._production_selection_rects[i],
+                    True,
+                    label,
+                    primary=selected,
+                    selected=selected,
+                    mouse=mouse,
+                )
 
             back_w, back_h = 140, 40
             self._production_popup_back_rect = pygame.Rect(0, 0, back_w, back_h)
@@ -2268,6 +2419,7 @@ class InGameUI:
                 self._draw_war_progress_popup(surface, mouse)
             if self.pausemenuopen:
                 self._draw_pausemenu(surface)
+            self._ui_pulses.draw(surface)
             return
 
         if self.researchview.isopen:
@@ -2280,6 +2432,7 @@ class InGameUI:
                 self._draw_war_progress_popup(surface, mouse)
             if self.pausemenuopen:
                 self._draw_pausemenu(surface)
+            self._ui_pulses.draw(surface)
             return
 
         selected_tab = self.bottom_buttons.selected
@@ -2292,6 +2445,7 @@ class InGameUI:
                 self._draw_war_progress_popup(surface, mouse)
             if self.pausemenuopen:
                 self._draw_pausemenu(surface)
+            self._ui_pulses.draw(surface)
             return
                 
        
@@ -2512,7 +2666,16 @@ class InGameUI:
                 advance_label = "Auto"
                 self._draw_glow_btn(surface, "split", self._split_rect, split_enabled, "Split", mouse=mouse, icon_key="manpower")
                 self._draw_glow_btn(surface, "merge", self._merge_rect, merge_enabled, "Merge", mouse=mouse, icon_key="logistics")
-                self._draw_glow_btn(surface, "frontline", self._frontline_rect, True, frontline_label, mouse=mouse, icon_key="combat")
+                self._draw_glow_btn(
+                    surface,
+                    "frontline",
+                    self._frontline_rect,
+                    True,
+                    frontline_label,
+                    selected=self._frontlineplacementmode,
+                    mouse=mouse,
+                    icon_key="combat",
+                )
                 self._draw_glow_btn(
                     surface,
                     "autoadvance",
@@ -2520,6 +2683,7 @@ class InGameUI:
                     hasdivision,
                     advance_label,
                     primary=divisionautoadvance,
+                    selected=divisionautoadvance,
                     mouse=mouse,
                     icon_key="turn",
                 )
@@ -2536,6 +2700,7 @@ class InGameUI:
 
         if self.pausemenuopen:
             self._draw_pausemenu(surface)
+        self._ui_pulses.draw(surface)
 
 
     def _draw_metric_chip(self, surface, rect, label, value, icon_key=None, accent=_C_GOLD):
@@ -2899,7 +3064,7 @@ class InGameUI:
             accent=_C_DANGER,
         )
 
-    def _draw_glow_btn(self, surface, key, rect, enabled, label, primary=False, mouse=None, icon_key=None):
+    def _draw_glow_btn(self, surface, key, rect, enabled, label, primary=False, selected=False, mouse=None, icon_key=None):
         if mouse is None:
             mouse = pygame.mouse.get_pos()
         hovered = rect.collidepoint(mouse) and enabled
@@ -2911,6 +3076,11 @@ class InGameUI:
         self._button_glows[key] = glow
 
         radius = 8
+        drawrect = scale_rect(
+            rect,
+            1.0 + glow * 0.035,
+            (math.sin(self._motion_time * 3.0 + len(str(key))) * glow * 2.0, -glow * 1.5),
+        )
         if primary:
             top = (26, 93, 60) if hovered else ((20, 74, 50) if enabled else (48, 53, 60))
             bottom = (9, 38, 29) if enabled else (35, 38, 43)
@@ -2920,11 +3090,12 @@ class InGameUI:
             bottom = (11, 17, 27) if enabled else (35, 38, 43)
             border = _C_GOLD if hovered and enabled else ((69, 84, 104) if enabled else (69, 75, 84))
 
-        self._draw_vertical_gradient_rect(surface, rect, top, bottom, radius=radius)
-        pygame.draw.rect(surface, border, rect, 1, border_radius=radius)
+        self._draw_vertical_gradient_rect(surface, drawrect, top, bottom, radius=radius)
+        pygame.draw.rect(surface, border, drawrect, 1, border_radius=radius)
+        draw_light_sweep(surface, drawrect, self._motion_time + len(str(key)) * 0.17, border, alpha=int(10 + glow * 24))
 
         if glow > 0.01 and enabled:
-            w, h = rect.size
+            w, h = drawrect.size
             glow_surf = pygame.Surface((w + 24, h + 24), pygame.SRCALPHA)
             for ring in range(5):
                 ring_alpha = int(glow * (28 - ring * 5))
@@ -2937,7 +3108,7 @@ class InGameUI:
                 pygame.draw.rect(glow_surf, (*glow_color, ring_alpha),
                     (12 - offset, 12 - offset, gw, gh),
                     border_radius=radius + offset, width=2)
-            surface.blit(glow_surf, (rect.x - 12, rect.y - 12))
+            surface.blit(glow_surf, (drawrect.x - 12, drawrect.y - 12))
 
         if hovered:
             text_color = _C_TEXT
@@ -2950,30 +3121,37 @@ class InGameUI:
             fnt = self.font
         txt = fnt.render(label, True, text_color)
         icon = self._topbar_icons.get(icon_key) if icon_key else None
-        if icon is not None and rect.width >= 80:
+        if icon is not None and drawrect.width >= 80:
             gap = 6
             total_width = icon.get_width() + gap + txt.get_width()
-            start_x = rect.centerx - total_width // 2
-            surface.blit(icon, (start_x, rect.centery - icon.get_height() // 2))
-            surface.blit(txt, (start_x + icon.get_width() + gap, rect.centery - txt.get_height() // 2))
+            start_x = drawrect.centerx - total_width // 2
+            draw_animated_icon(
+                surface,
+                icon,
+                (start_x + icon.get_width() // 2, drawrect.centery),
+                self._motion_time,
+                hover=1.0 if (hovered or selected) else 0.0,
+                accent=_C_SUCCESS if primary else _C_GOLD,
+                phase=len(str(key)) * 0.21,
+            )
+            surface.blit(txt, (start_x + icon.get_width() + gap, drawrect.centery - txt.get_height() // 2))
         else:
-            surface.blit(txt, txt.get_rect(center=rect.center))
+            surface.blit(txt, txt.get_rect(center=drawrect.center))
 
     def _draw_pausemenu(self, surface: pygame.Surface):
         overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 150))
+        draw_scanlines(overlay, overlay.get_rect(), self._motion_time, color=(212, 169, 77), alpha=12, spacing=26)
         surface.blit(overlay, (0, 0))
 
-        pygame.draw.rect(surface, (28, 28, 28), self._pausemenu_rect, border_radius=4)
-        pygame.draw.rect(surface, (25, 25, 25), self._pausemenu_rect, 1, border_radius=4)
+        draw_rect = scale_rect(self._pausemenu_rect, 1.0 + 0.015 * pulse(self._motion_time, 1.8))
+        draw_soft_glow(surface, draw_rect, _C_GOLD, 0.42 + 0.18 * pulse(self._motion_time, 2.5), radius=9, rings=5)
+        self._draw_glass_panel(surface, draw_rect, radius=7, border=(92, 74, 42), glow=True)
 
         title = self.title_font.render("PAUSED", True, (230, 230, 230))
-        surface.blit(title, title.get_rect(center=(self._pausemenu_rect.centerx, self._pausemenu_rect.y + 34)))
+        surface.blit(title, title.get_rect(center=(draw_rect.centerx, draw_rect.y + 34)))
 
         info = self.font.render("Press ESC to resume", True, (200, 200, 200))
-        surface.blit(info, info.get_rect(center=(self._pausemenu_rect.centerx, self._pausemenu_rect.y + 72)))
+        surface.blit(info, info.get_rect(center=(draw_rect.centerx, draw_rect.y + 72)))
 
-        pygame.draw.rect(surface, (180, 60, 60), self._pausequit_rect)
-        pygame.draw.rect(surface, (25, 25, 25), self._pausequit_rect, 1)
-        quit_label = self.font.render("QUIT GAME", True, (255, 255, 255))
-        surface.blit(quit_label, quit_label.get_rect(center=self._pausequit_rect.center))
+        self._draw_glow_btn(surface, "pause_quit", self._pausequit_rect, True, "QUIT GAME", mouse=pygame.mouse.get_pos())

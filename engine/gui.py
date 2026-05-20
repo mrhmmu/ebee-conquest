@@ -2,6 +2,7 @@ import pygame
 import os
 import pygame_gui
 import math
+from game.animation.motion import draw_soft_glow, pulse
 
 troopbadgevisiblezoommultiplier = 2.5
 countrylabelvisiblezoommultiplier = 6
@@ -1270,6 +1271,10 @@ def gui_drawtroopcountbadge(
         return
 
     x, y = centerposition
+    now = pygame.time.get_ticks() / 1000.0
+    badgepulse = 0.18 + 0.22 * pulse(now, 3.0, float(x) * 0.017 + float(y) * 0.011)
+    if tuple(bordercolor[:3]) in {(224, 93, 93), (212, 169, 77)}:
+        badgepulse += 0.35 * pulse(now, 5.2)
     badgesurface = gui_gettroopbadgesurface(
         fontobject,
         troopcount,
@@ -1280,12 +1285,16 @@ def gui_drawtroopcountbadge(
         rows=rows,
         entrenched=entrenched,
     )
+    visualrect = pygame.Rect(
+        int(x - ((badgesurface.get_width() - 8) * 0.5) - 4),
+        int(y - ((badgesurface.get_height() - 8) * 0.5) - 2),
+        badgesurface.get_width(),
+        badgesurface.get_height(),
+    )
+    draw_soft_glow(screen, visualrect.inflate(-8, -4), bordercolor, badgepulse, radius=7, rings=3)
     screen.blit(
         badgesurface,
-        (
-            int(x - ((badgesurface.get_width() - 8) * 0.5) - 4),
-            int(y - ((badgesurface.get_height() - 8) * 0.5) - 2),
-        ),
+        visualrect.topleft,
     )
 
 def gui_drawhoverlabel(screen, fontobject, state, mouseposition):
@@ -1382,6 +1391,7 @@ def gui_drawcountrylabels(
     # O(k*s) -> O(s + k*c)
     # build country anchors once per frame and reuse across wrapped copies
     countryanchorlookup = gui_buildcountrylabelanchors(stateshapelist, gamephase)
+    now = pygame.time.get_ticks() / 1000.0
 
     for copyshift in copyshiftlist:
         drawcamerax = camerax + copyshift
@@ -1420,6 +1430,7 @@ def gui_drawcountrylabels(
             )
             if labelrectangle.width > countrybox.width * 1.55 or labelrectangle.height > countrybox.height * 1.25:
                 continue
+            labelsurface.set_alpha(int(146 + 46 * pulse(now, 1.15, centerx * 0.01)))
             screen.blit(labelsurface, labelrectangle)
 
 

@@ -1,483 +1,464 @@
-import pygame
-import sys
+import math
 import os
-
-from engine.runtime import main
-from game.scripts import ScriptMenuController
-
-pygame.mixer.pre_init(44100, -16, 2, 1024)
-pygame.init()
-
-button_click_sound = pygame.mixer.Sound("game/sounds/click.wav")
-button_click_sound.set_volume(0.4)
-
-
-
-
 import shutil
+import sys
+
+import pygame
+
+from engine.runtime import main as run_game
+from game.animation.motion import (
+    AmbientParticleField,
+    PulseLayer,
+    clamp,
+    draw_light_sweep,
+    draw_scanlines,
+    draw_soft_glow,
+    ease_out_back,
+    exp_lerp,
+    mix_color,
+    pulse,
+    scale_rect,
+)
+from game.script_menu import ScriptMenuController
+
+
+WIDTH, HEIGHT = 1280, 720
+
+_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+_FONTS = os.path.join(_ROOT, "fonts")
+_IMAGES = os.path.join(_ROOT, "images")
+_MENU_BACKGROUND = os.path.join(_IMAGES, "Game Menu UI Design (1).png")
+
+_C_TEXT = (248, 250, 252)
+_C_MUTED = (156, 163, 175)
+_C_GOLD = (212, 169, 77)
+_C_GOLD_BRIGHT = (242, 204, 119)
+_C_BLUE = (74, 143, 231)
+_C_DANGER = (224, 93, 93)
+
 
 def remove_cache():
     targets = [
-        os.path.join(_ROOT, '.ebee_super_optimization'),
-        os.path.join(_ROOT, 'map', '.ebee_super_optimization')
+        os.path.join(_ROOT, ".ebee_super_optimization"),
+        os.path.join(_ROOT, "map", ".ebee_super_optimization"),
     ]
     for path in targets:
         try:
             if os.path.exists(path):
                 shutil.rmtree(path)
-                print(f'Deleted {path}')
-        except Exception as e:
-            print(f'Error deleting {path}: {e}')
-
-    
-
-def lerp(start, end, t):
-    return start + (end - start) * t
-
-WIDTH,HEIGHT = 1280,720
-
-_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
-_FONTS = os.path.join(_ROOT, 'fonts')
-_IMAGES = os.path.join(_ROOT, 'images')
-
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-
-pygame.display.set_caption('Ebee Conquest - Main Menu') 
-
-text= (255, 255, 255)
-
-ease = 1
-ease2= 1
-ease3= 1
-ease4 = 1
-ease_scripts = 1
-ease_backbutton = 1
-ease_removecache = 1
+                print(f"Deleted {path}")
+        except Exception as exc:
+            print(f"Error deleting {path}: {exc}")
 
 
-
-is_fullscreen = False
-ease_fullscreen = 1 
-
-volume_drag = False
-
-
-main_font = pygame.font.Font(os.path.join(_FONTS, "Inter_18pt-Medium.ttf"), 18)
-settings_font = pygame.font.Font(os.path.join(_FONTS, "Inter_18pt-Medium.ttf"), 36)
+def _load_font(name, size, fallback="bahnschrift", bold=False):
+    filepath = os.path.join(_FONTS, name)
+    if os.path.isfile(filepath):
+        return pygame.font.Font(filepath, size)
+    return pygame.font.SysFont(fallback, size, bold=bold)
 
 
-
-def scale_button():
-    global button_m, button_width, button_height, button_y_positions, main_font
-    w, h = screen.get_size()
-
-    
-    BASE_W, BASE_H = 297, 53
-    BASE_FONT = 18
-
-    if is_fullscreen:
-        scale = 1.3 
-        gap = 35
-    else:
-        scale = 0.85 
-        gap = 25
-    
-    button_width = int(BASE_W * scale)
-    button_height = int(BASE_H * scale)
-    main_font = pygame.font.Font(os.path.join(_FONTS, "Inter_18pt-Medium.ttf"), int(BASE_FONT * scale))
-    
-    total_height = button_height * 5 + gap * 4
-    start_y = (h - total_height) // 2
-    button_y_positions = {
-        'new_game': start_y,
-        'load_game': start_y + button_height + gap,
-        'scripts': start_y + (button_height + gap) * 2,
-        'settings': start_y + (button_height + gap) * 3,
-        'quit': start_y + (button_height + gap) * 4
-    }
-
-    button_m = (w // 2) - (button_width // 2)
+def _safe_sound(path, volume=0.4):
+    try:
+        sound = pygame.mixer.Sound(path)
+        sound.set_volume(volume)
+        return sound
+    except pygame.error:
+        return None
 
 
-
-menu = 'main' 
-run = True
-volume = 50
-
-
-
-bg_image = pygame.image.load(os.path.join(_IMAGES, "Game Menu UI Design (1).png")).convert()
-bg_image = pygame.transform.smoothscale(bg_image,(WIDTH, HEIGHT))
-
-def glow(screen,x,y,w,h):
-    for i in range(1,4):
-        lighting = pygame.Surface((w + i*4, h + i*4), pygame.SRCALPHA)
-        glow_color =(255,195,0,17)
-        pygame.draw.rect(lighting, glow_color, (0, 0, w + i*4, h + i*4))
-        
-        screen.blit(lighting, (x - i*2, y - i*2))
+def _draw_vertical_gradient(surface, rect, top_color, bottom_color, radius=0):
+    if rect.width <= 0 or rect.height <= 0:
+        return
+    gradient = pygame.Surface(rect.size, pygame.SRCALPHA)
+    for y in range(rect.height):
+        t = y / max(1, rect.height - 1)
+        color = mix_color(top_color, bottom_color, t)
+        pygame.draw.line(gradient, (*color, 255), (0, y), (rect.width, y))
+    if radius:
+        mask = pygame.Surface(rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(mask, (255, 255, 255), mask.get_rect(), border_radius=radius)
+        gradient.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    surface.blit(gradient, rect.topleft)
 
 
-def button(screen,x,y,w,h):
-    button_surf = pygame.Surface((w, h),pygame.SRCALPHA)
-    button_color = (15,23,43,180)  
-    pygame.draw.rect(button_surf, button_color, (0,0,w,h))
-    pygame.draw.rect(button_surf,(187,77,0,255),(0,0,w,h),width=2)
-    screen.blit(button_surf, (x, y))
+class AnimatedMainMenu:
+    def __init__(self, is_fullscreen=False):
+        self.is_fullscreen = bool(is_fullscreen)
+        flags = pygame.FULLSCREEN if self.is_fullscreen else 0
+        size = (0, 0) if self.is_fullscreen else (WIDTH, HEIGHT)
+        self.screen = pygame.display.set_mode(size, flags)
+        pygame.display.set_caption("Ebee Conquest - Main Menu")
+        self.clock = pygame.time.Clock()
+        self.running = True
+        self.menu = "main"
+        self.menu_transition = 1.0
+        self.volume = 50
+        self.volume_dragging = False
+        self.mouse = (0, 0)
+        self.notice = None
+        self.notice_time = 0.0
 
+        self.title_font = _load_font("Inter_18pt-Medium.ttf", 42, bold=True)
+        self.heading_font = _load_font("Inter_18pt-Medium.ttf", 28, bold=True)
+        self.main_font = _load_font("Inter_18pt-Medium.ttf", 18)
+        self.small_font = _load_font("Inter_18pt-Medium.ttf", 13)
 
-clock = pygame.time.Clock()
-script_menu = ScriptMenuController()
+        self.click_sound = _safe_sound("game/sounds/click.wav")
+        self.script_menu = ScriptMenuController()
+        self.particles = AmbientParticleField(96, seed=37)
+        self.pulses = PulseLayer()
+        self.button_motion = {}
+        self._bg_surface = None
+        self._bg_size = None
+        self._refresh_background()
 
+    def _refresh_background(self):
+        size = self.screen.get_size()
+        if size == self._bg_size:
+            return
+        self._bg_size = size
+        try:
+            image = pygame.image.load(_MENU_BACKGROUND).convert()
+            self._bg_surface = pygame.transform.smoothscale(image, size)
+        except pygame.error:
+            self._bg_surface = pygame.Surface(size)
+            self._bg_surface.fill((8, 12, 20))
 
-scale_button()
-while run:
-    mouse = pygame.mouse.get_pos()
-    screen.blit(bg_image, (0, 0))
+    def _play_click(self):
+        if self.click_sound is not None:
+            self.click_sound.play()
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            run = False
+    def _set_menu(self, name):
+        if name == self.menu:
+            return
+        self.menu = name
+        self.menu_transition = 0.0
+        if name == "scripts":
+            self.script_menu._opened_at = pygame.time.get_ticks() / 1000.0
+        self.pulses.emit(self.screen.get_rect().center, _C_GOLD, radius=220, duration=0.8, width=3)
 
+    def _toggle_fullscreen(self):
+        self.is_fullscreen = not self.is_fullscreen
+        flags = pygame.FULLSCREEN if self.is_fullscreen else 0
+        size = (0, 0) if self.is_fullscreen else (WIDTH, HEIGHT)
+        self.screen = pygame.display.set_mode(size, flags)
+        self._bg_size = None
+        self._refresh_background()
+        self.pulses.emit(self.screen.get_rect().center, _C_BLUE, radius=260, duration=0.9, width=2)
 
+    def _main_button_rects(self):
+        w, h = self.screen.get_size()
+        scale = 1.22 if self.is_fullscreen else max(0.9, min(1.08, w / WIDTH))
+        button_w = int(312 * scale)
+        button_h = int(56 * scale)
+        gap = int(15 * scale)
+        labels = [
+            ("new_game", "NEW GAME"),
+            ("load_game", "LOAD GAME"),
+            ("scripts", "SCRIPTS"),
+            ("settings", "SETTINGS"),
+            ("quit", "QUIT"),
+        ]
+        total_h = len(labels) * button_h + (len(labels) - 1) * gap
+        start_y = int(h * 0.5 - total_h * 0.42)
+        start_x = int(w * 0.5 - button_w * 0.5)
+        return [
+            (key, label, pygame.Rect(start_x, start_y + i * (button_h + gap), button_w, button_h))
+            for i, (key, label) in enumerate(labels)
+        ]
 
+    def _button_hover_value(self, key, hovered, dt, speed=10.0):
+        motion = self.button_motion.setdefault(key, {"hover": 0.0, "press": 0.0})
+        motion["hover"] = exp_lerp(motion["hover"], 1.0 if hovered else 0.0, speed, dt)
+        motion["press"] = exp_lerp(motion["press"], 0.0, 13.0, dt)
+        return motion
 
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            if menu == 'scripts':
-                action = script_menu.handle_event(event, mouse, screen.get_size())
-                if action == "back":
-                    menu = 'main'
+    def _button_click(self, key, rect):
+        motion = self.button_motion.setdefault(key, {"hover": 0.0, "press": 0.0})
+        motion["press"] = 1.0
+        self.pulses.emit(rect.center, _C_GOLD_BRIGHT, radius=90, duration=0.45, width=2)
+        self._play_click()
+
+    def _draw_button(self, rect, key, label, dt, primary=False, danger=False):
+        hovered = rect.collidepoint(self.mouse)
+        motion = self._button_hover_value(key, hovered, dt)
+        hover = motion["hover"]
+        press = motion["press"]
+        t = pygame.time.get_ticks() / 1000.0
+        scale = 1.0 + hover * 0.055 - press * 0.035
+        offset_x = math.sin(t * 2.2 + len(key)) * hover * 3.0
+        draw_rect = scale_rect(rect, scale, (offset_x, 0))
+        radius = 8
+
+        accent = _C_DANGER if danger else (_C_BLUE if not primary else _C_GOLD)
+        draw_soft_glow(self.screen, draw_rect, accent, hover * 0.95 + press * 0.9, radius=radius, rings=5)
+        top = mix_color((16, 25, 42), (34, 54, 86), hover)
+        bottom = mix_color((6, 10, 18), (13, 24, 42), hover)
+        if primary:
+            top = mix_color((31, 56, 64), (98, 76, 30), hover * 0.85)
+            bottom = mix_color((7, 24, 29), (42, 27, 10), hover * 0.7)
+        if danger:
+            top = mix_color((38, 30, 35), (90, 38, 45), hover)
+            bottom = mix_color((18, 12, 17), (42, 14, 20), hover)
+
+        _draw_vertical_gradient(self.screen, draw_rect, top, bottom, radius=radius)
+        pygame.draw.rect(self.screen, mix_color((69, 84, 104), accent, hover), draw_rect, 1, border_radius=radius)
+        pygame.draw.line(
+            self.screen,
+            (*mix_color((105, 121, 142), accent, 0.65 + hover * 0.35),),
+            (draw_rect.x + 14, draw_rect.y + 2),
+            (draw_rect.right - 14, draw_rect.y + 2),
+            1,
+        )
+        draw_light_sweep(self.screen, draw_rect, t + len(key) * 0.33, accent, alpha=int(18 + hover * 34))
+
+        glyph_x = draw_rect.x + 24
+        glyph_y = draw_rect.centery
+        glyph_color = mix_color((92, 116, 144), accent, 0.4 + hover * 0.6)
+        glyph_radius = int(8 + hover * 4)
+        pygame.draw.circle(self.screen, glyph_color, (glyph_x, glyph_y), glyph_radius, 1)
+        pygame.draw.line(self.screen, glyph_color, (glyph_x - 12, glyph_y), (glyph_x + 12, glyph_y), 1)
+        pygame.draw.line(self.screen, glyph_color, (glyph_x, glyph_y - 12), (glyph_x, glyph_y + 12), 1)
+
+        text_color = mix_color(_C_TEXT, _C_GOLD_BRIGHT if primary else (226, 236, 248), hover)
+        font = self.heading_font if draw_rect.height >= 60 else self.main_font
+        text_surface = font.render(label, True, text_color)
+        text_rect = text_surface.get_rect(center=(draw_rect.centerx + int(hover * 4), draw_rect.centery))
+        self.screen.blit(text_surface, text_rect)
+        return hovered
+
+    def _draw_background(self, dt):
+        self._refresh_background()
+        w, h = self.screen.get_size()
+        t = pygame.time.get_ticks() / 1000.0
+        if self._bg_surface:
+            self.screen.blit(self._bg_surface, (0, 0))
+
+        wash = pygame.Surface((w, h), pygame.SRCALPHA)
+        wash.fill((2, 6, 14, 132))
+        pygame.draw.rect(wash, (0, 0, 0, 98), pygame.Rect(0, 0, int(w * 0.34), h))
+        pygame.draw.rect(wash, (0, 0, 0, 74), pygame.Rect(int(w * 0.66), 0, int(w * 0.34), h))
+        self.screen.blit(wash, (0, 0))
+
+        self.particles.draw(self.screen, self.screen.get_rect(), t, color=(124, 196, 255), parallax=(0.0, 0.0))
+        draw_scanlines(self.screen, self.screen.get_rect(), t, color=(74, 143, 231), alpha=14, spacing=32)
+        self.pulses.update(dt)
+        self.pulses.draw(self.screen)
+
+    def _handle_main_click(self):
+        for key, _label, rect in self._main_button_rects():
+            if not rect.collidepoint(self.mouse):
                 continue
-
-            if menu == 'settings':
-                vol_bar_rect = pygame.Rect(button_m, 280, button_width, 30)
-                if vol_bar_rect.collidepoint(mouse):
-                    volume_drag = True
-                    volume = int((mouse[0] - button_m) / button_width * 100)
-                    volume = max(0, min(100, volume))
-                    pygame.mixer.music.set_volume(volume / 100)
-
-                if button_m < mouse[0] < button_m + button_width and 530 < mouse[1] < 583:
-                    button_click_sound.play()
-                    remove_cache() 
-
-
-
-                if button_m < mouse[0] < button_m + button_width and 310 < mouse[1] < 363:
-                    button_click_sound.play()
-                    is_fullscreen = not is_fullscreen
-                    if is_fullscreen:
-                        screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-                    else:
-                        screen = pygame.display.set_mode((WIDTH, HEIGHT))
-
-                    scale_button()
-                    w, h = screen.get_size()
-                    bg_image = pygame.transform.smoothscale(
-                        pygame.image.load(os.path.join(_IMAGES, "Game Menu UI Design (1).png")).convert(),
-                        (w, h),
-                    )
-
-
-
-                if button_m < mouse[0] < button_m + button_width and 420 < mouse[1] < 473:
-                    button_click_sound.play()
-                    menu = 'main'
-
-            elif menu == 'main':
-                if button_m < mouse[0] < button_m + button_width and button_y_positions['new_game'] < mouse[1] < button_y_positions['new_game'] + button_height:
-                    button_click_sound.play()
-                    main(is_fullscreen=is_fullscreen)
-                    pygame.quit()
-                    sys.exit()
-                    
-                elif button_m < mouse[0] < button_m+button_width and button_y_positions['settings'] < mouse[1] < button_y_positions['settings'] + button_height:
-                    button_click_sound.play()
-                    menu = 'settings'
-
-                elif button_m < mouse[0] < button_m + button_width and button_y_positions['scripts'] < mouse[1] < button_y_positions['scripts'] + button_height:
-                    button_click_sound.play()
-                    menu = 'scripts'
-
-                elif button_m < mouse[0] < button_m + button_width and button_y_positions['quit'] < mouse[1] < button_y_positions['quit'] + button_height:
-                    button_click_sound.play()
-                    run = False
-
-                elif button_m < mouse[0] < button_m + button_width and button_y_positions['load_game'] < mouse[1] < button_y_positions['load_game'] + button_height:
-                    button_click_sound.play()
-                    print('loading game....')
-
-
-        if event.type == pygame.MOUSEBUTTONUP:
-                if event.button == 1:
-                    volume_drag = False
-
-        if event.type == pygame.MOUSEMOTION:
-            if volume_drag and menu == 'settings':
-                volume = int((mouse[0] - button_m) / button_width * 100)
-                volume = max(0, min(100, volume))
-                pygame.mixer.music.set_volume(volume / 100)
-
-
-
-
-
-
-                    
-    if menu == 'main':
-        
-        
-        y_pos = button_y_positions['new_game']
-        hover = button_m < mouse[0] < button_m + button_width and y_pos < mouse[1] < y_pos + button_height
-
-        
-        new_w = int(button_width * ease)
-        new_x = button_m - (new_w - button_width) // 2
-        
-        new_h = int(button_height * ease)
-
-       
-        new_y = y_pos - (new_h - button_height) // 2
-
-        
-        if hover:
-            expand = 1.15
-        else:
-            expand = 1 
-
-        ease = lerp(ease, expand, 0.15)
-
-      
-
-        if ease > 1.01:
-            glow(screen, new_x, new_y, new_w, new_h)
-        button(screen, new_x, new_y, new_w, new_h)
-
-        txt1 = main_font.render('NEW GAME',True,text)
-        txt1_rect = txt1.get_rect(center=(new_x + new_w // 2, new_y + new_h // 2))
-        screen.blit(txt1, txt1_rect)
-
-            
-        
-        y_pos = button_y_positions['settings']
-        hover = button_m < mouse[0] < button_m + button_width and y_pos < mouse[1] < y_pos + button_height
-
-        new_w = int(button_width * ease2)
-        new_x = button_m - (new_w - button_width) // 2
-        
-        new_h = int(button_height * ease2)
-
-        
-        new_y = y_pos - (new_h - button_height) // 2
-
-
-
-        if hover:
-            expand = 1.15
-        else:
-            expand = 1
-
-        ease2 = lerp(ease2, expand, 0.15)
-
-      
-
-        if ease2 > 1.01:
-            glow(screen, new_x, new_y, new_w, new_h)
-        button(screen, new_x, new_y, new_w, new_h)
-
-        txt2 = main_font.render('SETTINGS',True,text)
-        txt2_rect = txt2.get_rect(center=(new_x + new_w // 2, new_y + new_h // 2))
-        screen.blit(txt2, txt2_rect)
-
-
-
-        y_pos = button_y_positions['quit']
-        hover = button_m < mouse[0] < button_m + button_width and y_pos < mouse[1] < y_pos + button_height
-        new_w = int(button_width * ease3)
-        new_x = button_m - (new_w - button_width) // 2
-        
-        new_h = int(button_height * ease3)
-
-       
-        new_y = y_pos - (new_h - button_height) // 2
-
-
-      
-        if hover:
-            expand = 1.15
-        else:
-            expand = 1
-
-        ease3 = lerp(ease3, expand, 0.15)
-
-      
-
-        if ease3 > 1.01:
-            glow(screen, new_x, new_y, new_w, new_h)
-        button(screen, new_x, new_y, new_w, new_h)
-
-
-        txt3 = main_font.render('QUIT', True, text)
-        txt3_rect = txt3.get_rect(center=(new_x + new_w // 2, new_y + new_h // 2))
-        screen.blit(txt3, txt3_rect)
-
-
-
-
-        y_pos = button_y_positions['load_game']
-        hover = button_m < mouse[0] < button_m + button_width and y_pos < mouse[1] < y_pos + button_height
-        new_w = int(button_width * ease4)
-        new_x = button_m - (new_w - button_width) // 2
-        
-        new_h = int(button_height * ease4)
-
-
-        new_y = y_pos - (new_h - button_height) // 2
-       
-
-        if hover:
-            expand = 1.15
-        else:
-            expand = 1
-
-        ease4 = lerp(ease4, expand, 0.15)
-
-      
-
-        if ease4 > 1.01:
-            glow(screen, new_x, new_y, new_w, new_h)
-        button(screen, new_x, new_y, new_w, new_h)
-
-        txt5 = main_font.render('LOAD GAME', True, text)
-        txt5_rect = txt5.get_rect(center=(new_x + new_w // 2, new_y + new_h // 2))
-        screen.blit(txt5, txt5_rect)
-
-
-        y_pos = button_y_positions['scripts']
-        hover = button_m < mouse[0] < button_m + button_width and y_pos < mouse[1] < y_pos + button_height
-        new_w = int(button_width * ease_scripts)
-        new_x = button_m - (new_w - button_width) // 2
-
-        new_h = int(button_height * ease_scripts)
-
-        new_y = y_pos - (new_h - button_height) // 2
-
-        if hover:
-            expand = 1.15
-        else:
-            expand = 1
-
-        ease_scripts = lerp(ease_scripts, expand, 0.15)
-
-        if ease_scripts > 1.01:
-            glow(screen, new_x, new_y, new_w, new_h)
-        button(screen, new_x, new_y, new_w, new_h)
-
-        scripts_text = main_font.render('SCRIPTS', True, text)
-        scripts_rect = scripts_text.get_rect(center=(new_x + new_w // 2, new_y + new_h // 2))
-        screen.blit(scripts_text, scripts_rect)
-
-
-
-
-
-
-
-    if menu == 'settings':
-        overlay = pygame.Surface(screen.get_size())
-        overlay.set_alpha(200)
-        overlay.fill((0, 0, 0))
-        screen.blit(overlay, (0, 0))
-
-        title = settings_font.render('       SETTINGS', True, text)
-        screen.blit(title, (button_m, 30))
-
-        vol_text = main_font.render('Volume: ' + str(volume) + '%', True, text)
-        screen.blit(vol_text, (button_m, 250))
-
-        pygame.draw.rect(screen, (60, 60, 60), (button_m, 290, button_width, 8))
-        bar_fill = int(button_width * volume / 100)
-        pygame.draw.rect(screen, (0, 255, 0), (button_m, 290, bar_fill, 8))
-
-        knob = button_m + bar_fill
-        pygame.draw.circle(screen, (255, 255, 255), (knob, 295), 8)
-
-        
-        hover_fullscreen = button_m < mouse[0] < button_m + button_width and 310 < mouse[1] < 363
-
-        new_w = int(button_width * ease_fullscreen)
-        new_x = button_m - (new_w - button_width) // 2
-        new_h = int(button_height * ease_fullscreen)
-        new_y = 310 - (new_h - button_height) // 2
-
-        if hover_fullscreen:
-            expand = 1.15
-        else:
-            expand = 1
-        ease_fullscreen = lerp(ease_fullscreen, expand, 0.15)
-
-        if ease_fullscreen > 1.01:
-            glow(screen, new_x, new_y, new_w, new_h)
-        button(screen, new_x, new_y, new_w, new_h)
-
-        fs_text = 'TOGGLE FULLSCREEN: ON' if is_fullscreen else 'TOGGLE FULLSCREEN: OFF'
-        fullscreen_text = main_font.render(fs_text, True, text)
-        fs_box = fullscreen_text.get_rect(center=(new_x + new_w // 2, new_y + new_h // 2))
-        screen.blit(fullscreen_text, fs_box)
-
-    
-        hover_back = button_m < mouse[0] < button_m + button_width and 420 < mouse[1] < 473
-        new_w = int(button_width * ease_backbutton)
-        new_x = button_m - (new_w - button_width) // 2
-        new_h = int(button_height * ease_backbutton)
-        new_y = 420 - (new_h - button_height) // 2
-
-        if hover_back:
-            expand = 1.15
-        else:
-            expand = 1
-        ease_backbutton = lerp(ease_backbutton, expand, 0.15)
-
-        if ease_backbutton > 1.01:
-            glow(screen, new_x, new_y, new_w, new_h)
-        button(screen, new_x, new_y, new_w, new_h)
-
-        back_text = main_font.render('BACK', True, text)
-        back_rect = back_text.get_rect(center=(new_x + new_w // 2, new_y + new_h // 2))
-        screen.blit(back_text, back_rect)
-
-        hover_cache = button_m < mouse[0] < button_m + button_width and 530 < mouse[1] < 583
-        new_w = int(button_width * ease_removecache)
-        new_x = button_m - (new_w - button_width) // 2
-        new_h = int(button_height * ease_removecache)
-        new_y = 530 - (new_h - button_height) // 2
-
-        if hover_cache:
-            expand = 1.15
-        else:
-            expand = 1
-        ease_removecache = lerp(ease_removecache, expand, 0.15)
-
-        if ease_removecache > 1.01:
-            glow(screen, new_x, new_y, new_w, new_h)
-        button(screen, new_x, new_y, new_w, new_h)
-
-        cache_text = main_font.render('REMOVE CACHE', True, text)
-        cache_rect = cache_text.get_rect(center=(new_x + new_w // 2, new_y + new_h // 2))
-        screen.blit(cache_text, cache_rect)
-
-        warning_text = main_font.render('WARNING: GAME WILL RUN SLOWER THE NEXT TIME IF YOU PRESS REMOVE CACHE !!', True, (255, 100,100)) 
-        warning_rect = warning_text.get_rect(center=(button_m + button_width // 2, new_y + new_h + 20))
-        screen.blit(warning_text, warning_rect)
-
-    if menu == 'scripts':
-        script_menu.draw(screen)
-
-    pygame.display.flip()
-
-    clock.tick(240)
-
-
- 
-pygame.quit()           
-sys.exit()
+            self._button_click(key, rect)
+            if key == "new_game":
+                self._launch_transition(rect)
+                run_game(is_fullscreen=self.is_fullscreen)
+                pygame.quit()
+                sys.exit()
+            if key == "settings":
+                self._set_menu("settings")
+            elif key == "scripts":
+                self._set_menu("scripts")
+            elif key == "quit":
+                self.running = False
+            elif key == "load_game":
+                self.notice = "Save loading is not implemented yet."
+                self.notice_time = 2.4
+            return
+
+    def _launch_transition(self, origin_rect):
+        start_time = pygame.time.get_ticks() / 1000.0
+        duration = 0.78
+        while True:
+            dt = self.clock.tick(144) / 1000.0
+            self.mouse = pygame.mouse.get_pos()
+            elapsed = pygame.time.get_ticks() / 1000.0 - start_time
+            progress = clamp(elapsed / duration)
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.running = False
+                    return
+
+            self._draw_background(dt)
+            self._draw_main(dt)
+
+            overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, int(185 * progress)))
+            self.screen.blit(overlay, (0, 0))
+
+            cx, cy = origin_rect.center
+            radius = int(40 + progress * max(self.screen.get_size()) * 0.82)
+            pulse_surface = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+            pygame.draw.circle(pulse_surface, (*_C_GOLD_BRIGHT, int(120 * (1.0 - progress))), (cx, cy), radius, 3)
+            pygame.draw.circle(pulse_surface, (*_C_BLUE, int(70 * (1.0 - progress))), (cx, cy), max(1, radius // 2), 1)
+            self.screen.blit(pulse_surface, (0, 0))
+
+            pygame.display.flip()
+            if progress >= 1.0:
+                return
+
+    def _draw_main(self, dt):
+        for index, (key, label, rect) in enumerate(self._main_button_rects()):
+            staged = clamp((self.menu_transition - index * 0.045) / 0.82)
+            enter = ease_out_back(staged)
+            draw_rect = rect.move(int((1.0 - enter) * 84), int((1.0 - enter) * 22))
+            self._draw_button(draw_rect, key, label, dt, primary=key == "new_game", danger=key == "quit")
+
+        if self.notice_time > 0.0 and self.notice:
+            self.notice_time = max(0.0, self.notice_time - dt)
+            alpha = int(230 * clamp(min(self.notice_time, 0.35) / 0.35))
+            surf = self.main_font.render(self.notice, True, _C_TEXT)
+            pad = 18
+            rect = surf.get_rect()
+            rect.inflate_ip(pad * 2, 18)
+            rect.center = (self.screen.get_width() // 2, int(self.screen.get_height() * 0.84))
+            toast = pygame.Surface(rect.size, pygame.SRCALPHA)
+            pygame.draw.rect(toast, (7, 13, 22, alpha), toast.get_rect(), border_radius=8)
+            pygame.draw.rect(toast, (*_C_GOLD, alpha), toast.get_rect(), 1, border_radius=8)
+            toast.blit(surf, surf.get_rect(center=toast.get_rect().center))
+            self.screen.blit(toast, rect.topleft)
+
+    def _settings_controls(self):
+        w, h = self.screen.get_size()
+        panel_w = min(720, max(440, int(w * 0.54)))
+        panel_h = 430
+        panel = pygame.Rect(0, 0, panel_w, panel_h)
+        panel.center = (w // 2, h // 2)
+        slider = pygame.Rect(panel.x + 54, panel.y + 128, panel.width - 108, 12)
+        fullscreen = pygame.Rect(panel.x + 54, panel.y + 182, panel.width - 108, 52)
+        back = pygame.Rect(panel.x + 54, panel.y + 254, (panel.width - 124) // 2, 50)
+        cache = pygame.Rect(back.right + 16, back.y, back.width, 50)
+        return panel, slider, fullscreen, back, cache
+
+    def _draw_settings(self, dt):
+        panel, slider, fullscreen, back, cache = self._settings_controls()
+        t = pygame.time.get_ticks() / 1000.0
+        enter = ease_out_back(self.menu_transition)
+        panel = panel.move(0, int((1.0 - enter) * 42))
+        draw_soft_glow(self.screen, panel, _C_GOLD, 0.32 + pulse(t, 1.5) * 0.12, radius=12, rings=7)
+        _draw_vertical_gradient(self.screen, panel, (18, 27, 42), (6, 10, 18), radius=10)
+        pygame.draw.rect(self.screen, (86, 78, 52), panel, 1, border_radius=10)
+        draw_light_sweep(self.screen, panel, t, _C_GOLD_BRIGHT, alpha=22)
+
+        title = self.heading_font.render("SETTINGS", True, _C_GOLD_BRIGHT)
+        self.screen.blit(title, (panel.x + 34, panel.y + 30))
+        volume_label = self.main_font.render(f"Volume: {self.volume}%", True, _C_TEXT)
+        self.screen.blit(volume_label, (slider.x, slider.y - 34))
+
+        pygame.draw.rect(self.screen, (36, 45, 60), slider, border_radius=6)
+        fill = slider.copy()
+        fill.width = int(slider.width * self.volume / 100)
+        _draw_vertical_gradient(self.screen, fill, (83, 199, 132), (39, 130, 82), radius=6)
+        knob_x = slider.x + fill.width
+        knob_hover = abs(self.mouse[0] - knob_x) < 18 and abs(self.mouse[1] - slider.centery) < 18
+        knob_radius = 10 + int((knob_hover or self.volume_dragging) * 3)
+        pygame.draw.circle(self.screen, _C_TEXT, (knob_x, slider.centery), knob_radius)
+        pygame.draw.circle(self.screen, _C_GOLD, (knob_x, slider.centery), knob_radius + 4, 1)
+
+        fs_label = "FULLSCREEN: ON" if self.is_fullscreen else "FULLSCREEN: OFF"
+        self._draw_button(fullscreen, "settings_fullscreen", fs_label, dt, primary=self.is_fullscreen)
+        self._draw_button(back, "settings_back", "BACK", dt)
+        self._draw_button(cache, "settings_cache", "REMOVE CACHE", dt, danger=True)
+
+        warning = self.small_font.render("Removing cache rebuilds map geometry next launch.", True, (236, 166, 166))
+        self.screen.blit(warning, (panel.x + 54, panel.bottom - 50))
+
+    def _handle_settings_click(self):
+        panel, slider, fullscreen, back, cache = self._settings_controls()
+        if slider.inflate(6, 24).collidepoint(self.mouse):
+            self.volume_dragging = True
+            self._update_volume_from_mouse(slider)
+            self.pulses.emit((self.mouse[0], slider.centery), (83, 199, 132), radius=60, duration=0.45)
+            return
+        if fullscreen.collidepoint(self.mouse):
+            self._button_click("settings_fullscreen", fullscreen)
+            self._toggle_fullscreen()
+            return
+        if back.collidepoint(self.mouse):
+            self._button_click("settings_back", back)
+            self._set_menu("main")
+            return
+        if cache.collidepoint(self.mouse):
+            self._button_click("settings_cache", cache)
+            remove_cache()
+            self.notice = "Cache removed."
+            self.notice_time = 2.2
+
+    def _update_volume_from_mouse(self, slider=None):
+        if slider is None:
+            _panel, slider, _fullscreen, _back, _cache = self._settings_controls()
+        self.volume = int(clamp((self.mouse[0] - slider.x) / max(1, slider.width)) * 100)
+        try:
+            pygame.mixer.music.set_volume(self.volume / 100.0)
+        except pygame.error:
+            pass
+
+    def _draw_scripts(self):
+        self.script_menu.draw(self.screen)
+
+    def _handle_event(self, event):
+        if event.type == pygame.QUIT:
+            self.running = False
+            return
+
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            if self.menu == "main":
+                self.running = False
+            else:
+                self._set_menu("main")
+            return
+
+        if self.menu == "scripts":
+            action = self.script_menu.handle_event(event, self.mouse, self.screen.get_size())
+            if action == "back":
+                self._play_click()
+                self._set_menu("main")
+            elif action == "handled":
+                self._play_click()
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                self.pulses.emit(self.mouse, _C_BLUE, radius=72, duration=0.45)
+            return
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.menu == "main":
+                self._handle_main_click()
+            elif self.menu == "settings":
+                self._handle_settings_click()
+
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self.volume_dragging = False
+
+        elif event.type == pygame.MOUSEMOTION and self.volume_dragging and self.menu == "settings":
+            self._update_volume_from_mouse()
+
+    def run(self):
+        while self.running:
+            dt = self.clock.tick(144) / 1000.0
+            dt = max(0.0, min(0.05, dt))
+            self.mouse = pygame.mouse.get_pos()
+            self.menu_transition = min(1.0, self.menu_transition + dt * 2.9)
+
+            for event in pygame.event.get():
+                self._handle_event(event)
+
+            self._draw_background(dt)
+            if self.menu == "settings":
+                self._draw_settings(dt)
+            elif self.menu == "scripts":
+                self._draw_scripts()
+            else:
+                self._draw_main(dt)
+            pygame.display.flip()
+
+
+def main():
+    pygame.mixer.pre_init(44100, -16, 2, 1024)
+    pygame.init()
+    AnimatedMainMenu().run()
+    pygame.quit()
+    sys.exit()
+
+
+if __name__ == "__main__":
+    main()

@@ -101,6 +101,7 @@ def tacticalmapfill(colorvalue):
 
 
 from game.ingame_ui import InGameUI
+from game.animation.motion import PulseLayer, draw_light_sweep, draw_scanlines, draw_soft_glow, ease_out_cubic, exp_lerp, mix_color, pulse
 from game.focuseffects import FocusEffectContext
 from game.focusloader import loadfocustreeforcountry
 from game.researchui import load_research_data as _load_research_data, RESEARCH_RP_PER_TURN
@@ -963,26 +964,79 @@ def drawloadingscreen(
         if event.type == pygame.QUIT:
             return False
 
-
     progressvalue = 0.0 if totalcount <= 0 else completedcount / totalcount
-
-
     progressvalue = max(0.0, min(1.0, progressvalue))
+    now = pygame.time.get_ticks() / 1000.0
+    lasttick = getattr(drawloadingscreen, "_lasttick", now)
+    dt = max(0.0, min(0.12, now - lasttick))
+    drawloadingscreen._lasttick = now
+    if completedcount <= 0 or not hasattr(drawloadingscreen, "_displayprogress"):
+        drawloadingscreen._displayprogress = progressvalue
+    else:
+        drawloadingscreen._displayprogress = exp_lerp(
+            drawloadingscreen._displayprogress,
+            progressvalue,
+            7.5,
+            dt,
+        )
+    displayprogress = max(progressvalue, min(1.0, drawloadingscreen._displayprogress))
 
-    screen.fill((18, 18, 22))
     windowwidth, windowheight = screen.get_size()
+    screenrect = screen.get_rect()
+    topcolor = (5, 10, 19)
+    bottomcolor = (13, 22, 37)
+    for y in range(windowheight):
+        t = y / max(1, windowheight - 1)
+        pygame.draw.line(screen, mix_color(topcolor, bottomcolor, t), (0, y), (windowwidth, y))
+    draw_scanlines(screen, screenrect, now, color=(74, 143, 231), alpha=13, spacing=32)
 
-    titletextabovebar = largefont.render(f"Engine: {stage}", True, (240, 240, 240))
-    screen.blit(titletextabovebar, titletextabovebar.get_rect(center=(windowwidth // 2, windowheight // 2 - 40)))
+    center = (windowwidth // 2, int(windowheight * 0.33))
+    orbitalsurface = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+    for ring in range(4):
+        radius = int(50 + ring * 24 + pulse(now, 1.4 + ring * 0.28, ring) * 8)
+        alpha = max(18, 70 - ring * 11)
+        pygame.draw.circle(orbitalsurface, (212, 169, 77, alpha), center, radius, 1)
+    sweepangle = now * 2.6
+    pygame.draw.line(
+        orbitalsurface,
+        (242, 204, 119, 210),
+        center,
+        (
+            int(center[0] + math.cos(sweepangle) * 110),
+            int(center[1] + math.sin(sweepangle) * 110),
+        ),
+        2,
+    )
+    for dotindex in range(18):
+        angle = sweepangle * 0.45 + dotindex * (math.tau / 18.0)
+        orbit = 104 + math.sin(now * 1.6 + dotindex) * 10
+        dotx = int(center[0] + math.cos(angle) * orbit)
+        doty = int(center[1] + math.sin(angle) * orbit * 0.44)
+        pygame.draw.circle(orbitalsurface, (124, 196, 255, 70), (dotx, doty), 2)
+    screen.blit(orbitalsurface, (0, 0))
+
+    titletextabovebar = largefont.render("EBEE CONQUEST", True, (242, 204, 119))
+    stagesurface = smallfont.render(str(stage).upper(), True, (190, 210, 230))
+    screen.blit(titletextabovebar, titletextabovebar.get_rect(center=(windowwidth // 2, windowheight // 2 - 84)))
+    screen.blit(stagesurface, stagesurface.get_rect(center=(windowwidth // 2, windowheight // 2 - 48)))
 
     barwidth = min(760, windowwidth - 120)
-    barheight = 22
+    barheight = 20
     barx = (windowwidth - barwidth) // 2
-    bary = windowheight // 2 - 8
+    bary = windowheight // 2 - 10
+    barrect = pygame.Rect(barx, bary, barwidth, barheight)
 
-    pygame.draw.rect(screen, (60, 60, 70), (barx, bary, barwidth, barheight), border_radius=2)
-    pygame.draw.rect(screen, (120, 190, 255), (barx, bary, int(barwidth * progressvalue), barheight), border_radius=2)
-    pygame.draw.rect(screen, (120, 120, 130), (barx, bary, barwidth, barheight), 1, border_radius=2)
+    draw_soft_glow(screen, barrect.inflate(8, 8), (74, 143, 231), 0.36 + 0.18 * pulse(now, 2.0), radius=9, rings=4)
+    pygame.draw.rect(screen, (20, 30, 45), barrect, border_radius=9)
+    pygame.draw.rect(screen, (67, 82, 105), barrect, 1, border_radius=9)
+    fillrect = barrect.copy()
+    fillrect.width = max(0, int(barwidth * displayprogress))
+    if fillrect.width > 0:
+        pygame.draw.rect(screen, (74, 143, 231), fillrect, border_radius=9)
+        inner = fillrect.inflate(-4, -6)
+        if inner.width > 0 and inner.height > 0:
+            pygame.draw.rect(screen, (242, 204, 119), inner, border_radius=5)
+    draw_light_sweep(screen, barrect, now * 1.4, (255, 235, 160), alpha=34)
 
     overlaytext = statusline if statusline else f"{completedcount}/{totalcount}"
     maxoverlaywidth = max(20, barwidth - 12)
@@ -998,21 +1052,27 @@ def drawloadingscreen(
     screen.blit(overlaytextshadow, shadowrect)
     screen.blit(overlaytextsurface, overlayrect)
 
-    paneltop = bary + 40
+    paneltop = bary + 52
     panelheight = min(180, max(100, windowheight - paneltop - 40))
     panelrect = pygame.Rect(barx, paneltop, barwidth, panelheight)
 
-    pygame.draw.rect(screen, (23, 26, 31), panelrect, border_radius=3)
-    pygame.draw.rect(screen, (60, 70, 85), panelrect, 1, border_radius=3)
+    draw_soft_glow(screen, panelrect, (212, 169, 77), 0.18, radius=8, rings=4)
+    pygame.draw.rect(screen, (11, 17, 28), panelrect, border_radius=7)
+    pygame.draw.rect(screen, (67, 82, 105), panelrect, 1, border_radius=7)
+    pygame.draw.line(screen, (212, 169, 77), (panelrect.x + 16, panelrect.y + 1), (panelrect.right - 16, panelrect.y + 1), 1)
 
     visibleloglines = list(loglines or ())
     maxvisiblelines = max(1, (panelrect.height - 16) // 18)
     visibleloglines = visibleloglines[-maxvisiblelines:]
     texty = panelrect.y + 8
-    for logline in visibleloglines:
-        loglinesurface = smallfont.render(logline, True, (190, 210, 230))
+    for lineindex, logline in enumerate(visibleloglines):
+        linealpha = 145 + int(70 * pulse(now, 1.1, lineindex * 0.55))
+        loglinesurface = smallfont.render(logline, True, (min(255, linealpha), min(255, linealpha + 18), 230))
         screen.blit(loglinesurface, (panelrect.x + 10, texty))
         texty += 18
+
+    footer = smallfont.render("SYNCHRONIZING MAP DATA", True, (132, 145, 160))
+    screen.blit(footer, footer.get_rect(center=(windowwidth // 2, min(windowheight - 26, panelrect.bottom + 28))))
 
     pygame.display.flip()
     return True
@@ -1430,6 +1490,18 @@ def main(eventbus=None, is_fullscreen=False):
             "edgeCount": totaledges,
         },
     )
+    if not drawloadingscreen(
+        screen,
+        loadingtitlefont,
+        loadingtextfont,
+        1,
+        1,
+        stage="Ready",
+        statusline="Entering command view...",
+        loglines=loadingloglines,
+    ):
+        pygame.quit()
+        return
 
 
     
@@ -1489,6 +1561,9 @@ def main(eventbus=None, is_fullscreen=False):
     movement_path_overlay_cache_key = None
     map_vignette_cache = None
     map_vignette_cache_size = None
+    cinematicpulseoverlay = PulseLayer()
+    camerashakeamount = 0.0
+    ambientphasetimer = 0.0
     expandedstateid = None
     selectedprovinceid = None
     selectedprovinceidset = set()
@@ -2830,6 +2905,12 @@ def main(eventbus=None, is_fullscreen=False):
     devconsole = developmentconsole(enabled=developmentmode)
     notifications = []
     _notif_id_counter = 0
+
+    def emitmappulse(position, color=(212, 169, 77), radius=110, duration=0.75, width=2):
+        if position is None:
+            return
+        cinematicpulseoverlay.emit(position, color, radius=radius, duration=duration, width=width)
+
     def pushnotification(title, description):
         nonlocal _notif_id_counter
         _notif_id_counter += 1
@@ -2840,6 +2921,7 @@ def main(eventbus=None, is_fullscreen=False):
             "turn": currentturnnumber,
             "read": False,
         })
+        emitmappulse((maprect.width * 0.5, maprect.height * 0.18), (212, 169, 77), radius=170, duration=0.9, width=3)
     eventbus.subscribe(EngineEventType.WARDECLARED, lambda p: pushnotification(
         "WAR DECLARED",
         f"{p.get('attacker', '?')} declared war on {p.get('defender', '?')}!"
@@ -2876,6 +2958,7 @@ def main(eventbus=None, is_fullscreen=False):
 
     isrunning = True
     choosecountry_fit_state = {"done": False, "w": None, "h": None}
+    choosecountry_intro_progress = 0.0
     while isrunning:
         if perfenabled:
             perf_frame_start = time.perf_counter()
@@ -2886,6 +2969,13 @@ def main(eventbus=None, is_fullscreen=False):
             perf_section_start = 0.0
             perf_sections_frame = {}
         elapsedseconds = clock.tick(60) / 1000.0
+        ambientphasetimer += elapsedseconds
+        camerashakeamount = max(0.0, camerashakeamount - elapsedseconds * 18.0)
+        cinematicpulseoverlay.update(elapsedseconds)
+        if gamephase == "choosecountry":
+            choosecountry_intro_progress = min(1.0, choosecountry_intro_progress + elapsedseconds * 0.62)
+        else:
+            choosecountry_intro_progress = 1.0
         updatescriptengine()
         esomodule.updaterollingfpshistory(fpshistory, clock.get_fps(), fpshistorymaxsamples)
         mouseposition_full = pygame.mouse.get_pos()
@@ -3024,8 +3114,10 @@ def main(eventbus=None, is_fullscreen=False):
         cameramodule.clampcamerastate(camerastate, windowheight, mapbox)
 
         zoomvalue = camerastate.zoom
-        camerax = camerastate.x
-        cameray = camerastate.y
+        shakephase = ambientphasetimer * 42.0
+        shakefalloff = camerashakeamount * camerashakeamount
+        camerax = camerastate.x + math.sin(shakephase) * shakefalloff
+        cameray = camerastate.y + math.cos(shakephase * 1.21) * shakefalloff * 0.72
 
         # draw the map inside the viewport subsurface
         map_w, map_h = screen.get_size()
@@ -3242,11 +3334,19 @@ def main(eventbus=None, is_fullscreen=False):
 
 
                     elif drawitem.get("id") in selectedprovinceidset:
-                        basefillcolor = (232, 214, 103)
+                        basefillcolor = mix_color(
+                            (232, 214, 103),
+                            (255, 241, 166),
+                            0.38 * pulse(ambientphasetimer, 3.4, itemrectanglescreen.centerx * 0.01),
+                        )
 
 
                     elif drawitem.get("id") in routepreviewset:
-                        basefillcolor = (95, 145, 255)
+                        basefillcolor = mix_color(
+                            (95, 145, 255),
+                            (160, 210, 255),
+                            0.45 * pulse(ambientphasetimer, 4.6, itemrectanglescreen.centery * 0.014),
+                        )
 
 
                     # ESO optimization 22/04
@@ -3255,7 +3355,11 @@ def main(eventbus=None, is_fullscreen=False):
                     
                     
                     elif drawitem.get("id") in movingprovinceidset:
-                        basefillcolor = (132, 96, 226)
+                        basefillcolor = mix_color(
+                            (132, 96, 226),
+                            (198, 165, 255),
+                            0.42 * pulse(ambientphasetimer, 5.0, itemrectanglescreen.centerx * 0.018),
+                        )
 
 
 
@@ -3292,7 +3396,7 @@ def main(eventbus=None, is_fullscreen=False):
                     ):
                         basefillcolor = tacticalmapfill(basefillcolor)
 
-                    finalfillcolor = hovercolor if itemhovered else basefillcolor
+                    finalfillcolor = mix_color(hovercolor, (255, 226, 138), 0.25 * pulse(ambientphasetimer, 6.0)) if itemhovered else basefillcolor
                     for drawpolygon in drawpolygonlist:
                         pygame.draw.polygon(screen, finalfillcolor, drawpolygon)
                         pygame.draw.polygon(screen, (18, 27, 34), drawpolygon, 1)
@@ -3532,14 +3636,16 @@ def main(eventbus=None, is_fullscreen=False):
                 ishoveredborder = frontlineplacementmode and edgekey == hoveredfrontlineedgekey
 
                 if frontlineplacementmode:
-                    bordercolor = (255, 236, 145) if ishoveredborder else (235, 205, 92)
-                    borderwidth = 4 if ishoveredborder else 2
+                    activepulse = pulse(ambientphasetimer, 5.5, segmentstart[0] * 0.02)
+                    bordercolor = (255, 236, 145) if ishoveredborder else mix_color((235, 205, 92), (255, 244, 169), activepulse * 0.35)
+                    borderwidth = 4 if ishoveredborder else (2 + int(activepulse > 0.78))
                     pygame.draw.line(screen, bordercolor, segmentstart, segmentend, borderwidth)
 
                 if isactivefrontline:
-                    pygame.draw.line(screen, (185, 24, 24), segmentstart, segmentend, 8)
-                    pygame.draw.line(screen, (220, 42, 42), segmentstart, segmentend, 5)
-                    pygame.draw.line(screen, (255, 96, 96), segmentstart, segmentend, 2)
+                    frontpulse = pulse(ambientphasetimer, 4.8, segmentstart[1] * 0.017)
+                    pygame.draw.line(screen, mix_color((185, 24, 24), (255, 72, 72), frontpulse * 0.24), segmentstart, segmentend, 8)
+                    pygame.draw.line(screen, mix_color((220, 42, 42), (255, 110, 110), frontpulse * 0.28), segmentstart, segmentend, 5)
+                    pygame.draw.line(screen, (255, 126, 126) if frontpulse > 0.78 else (255, 96, 96), segmentstart, segmentend, 2)
 
             if frontlineplacementmode:
                 placementsegmentlist = [(segmentstart, segmentend) for _, segmentstart, segmentend in frontlineoverlaysegments]
@@ -3561,6 +3667,7 @@ def main(eventbus=None, is_fullscreen=False):
             now = time.perf_counter()
             perf_sections_frame["frontline_overlay"] = (now - perf_section_start) * 1000.0
             perf_section_start = now
+        cinematicpulseoverlay.draw(screen)
 
         selectedtroopentries = getselectedtroopentries(
             selectedprovinceidset,
@@ -3804,6 +3911,8 @@ def main(eventbus=None, is_fullscreen=False):
                             "country": playercountry,
                         },
                     )
+                    camerashakeamount = max(camerashakeamount, 1.15)
+                    emitmappulse(mouseposition, (212, 169, 77), radius=220, duration=1.0, width=3)
                 continue
 
             if uiaction == "declarewar" and gamephase == "play":
@@ -3823,6 +3932,8 @@ def main(eventbus=None, is_fullscreen=False):
                                 "turn": currentturnnumber,
                             },
                         )
+                        camerashakeamount = max(camerashakeamount, 1.75)
+                        emitmappulse((maprect.width * 0.5, maprect.height * 0.5), (224, 93, 93), radius=260, duration=1.05, width=4)
                 runtimeui.select_map_country(None)
                 countrymenutarget = None
                 continue
@@ -3861,6 +3972,9 @@ def main(eventbus=None, is_fullscreen=False):
                                     "turn": currentturnnumber,
                                 },
                             )
+                            recruitrect = getscreenrectangle(selectedprovince["rectangle"], zoomvalue, camerax, cameray)
+                            emitmappulse(recruitrect.center, (67, 181, 129), radius=120, duration=0.75, width=3)
+                            camerashakeamount = max(camerashakeamount, 0.75)
                 continue
 
             if uiaction == InGameUI.actiontogglefocuspanel and gamephase == "play":
@@ -3992,6 +4106,8 @@ def main(eventbus=None, is_fullscreen=False):
                         "playerAP": playerap,
                     },
                 )
+                emitmappulse((maprect.width * 0.5, maprect.height * 0.5), (67, 181, 129), radius=240, duration=0.92, width=3)
+                camerashakeamount = max(camerashakeamount, 1.0)
                 continue
 
             if uiaction == "split" and gamephase == "play":
@@ -4006,6 +4122,7 @@ def main(eventbus=None, is_fullscreen=False):
                     selectedprovinceidset = set(splitresult["selectedprovinceids"])
                     selectedprovinceid = splitresult["primaryprovinceid"]
                     routepreviewset = set()
+                    emitmappulse(mouseposition, (74, 143, 231), radius=110, duration=0.65, width=2)
                 continue
 
             if uiaction == "merge" and gamephase == "play":
@@ -4020,6 +4137,7 @@ def main(eventbus=None, is_fullscreen=False):
                     selectedprovinceidset = set(mergeresult["selectedprovinceids"])
                     selectedprovinceid = mergeresult["primaryprovinceid"]
                     routepreviewset = set()
+                    emitmappulse(mouseposition, (212, 169, 77), radius=120, duration=0.7, width=2)
                 continue
 
             if uiaction == "frontline" and gamephase == "play":
@@ -4027,6 +4145,7 @@ def main(eventbus=None, is_fullscreen=False):
                 frontlineplacementmode = bool(hastroopsselected) and not frontlineplacementmode
                 routepreviewset = set()
                 countrymenutarget = None
+                emitmappulse(mouseposition, (235, 205, 92), radius=140, duration=0.75, width=2)
                 continue
 
             if (
@@ -4042,6 +4161,7 @@ def main(eventbus=None, is_fullscreen=False):
                         routepreviewset = refreshfrontlines(allowautoadvance=True)
                     else:
                         routepreviewset = set()
+                    emitmappulse(mouseposition, (224, 93, 93), radius=130, duration=0.7, width=2)
                 continue
 
             if (
@@ -4053,6 +4173,7 @@ def main(eventbus=None, is_fullscreen=False):
                 if detachregimentfromdivision(uiaction[1]):
                     routepreviewset = set()
                     frontlineplacementmode = False
+                    emitmappulse(mouseposition, (224, 93, 93), radius=90, duration=0.55, width=2)
                 continue
 
             if event.type == pygame.QUIT:
@@ -4099,6 +4220,7 @@ def main(eventbus=None, is_fullscreen=False):
                                     "stateId": selectedstateobject["id"],
                                 },
                             )
+                            emitmappulse(eventmappos, (212, 169, 77), radius=150, duration=0.72, width=2)
 
                     continue
 
@@ -4145,6 +4267,8 @@ def main(eventbus=None, is_fullscreen=False):
                             routepreviewset = deploymentresult["routepreviewset"]
                             countrymenutarget = None
                             frontlineplacementmode = False
+                            emitmappulse(eventmappos, (224, 93, 93), radius=180, duration=0.9, width=3)
+                            camerashakeamount = max(camerashakeamount, 1.05)
                         continue
                     
                     #fix click handlin
@@ -4181,6 +4305,7 @@ def main(eventbus=None, is_fullscreen=False):
                                     "country": getprovincecontroller(selectedprovince),
                                 },
                             )
+                            emitmappulse(eventmappos, (212, 169, 77), radius=140, duration=0.72, width=2)
                         continue
                     dragselectstart = eventmappos
                     dragselectcurrent = eventmappos
@@ -4221,6 +4346,7 @@ def main(eventbus=None, is_fullscreen=False):
                                     "country": getprovincecontroller(selectedprovince),
                                 },
                             )
+                            emitmappulse(selectionrect.center, (74, 143, 231), radius=max(90, max(selectionrect.width, selectionrect.height)), duration=0.72, width=2)
                     else:
                         selectedprovinceid = None
                         selectedprovinceidset = set()
@@ -4250,6 +4376,7 @@ def main(eventbus=None, is_fullscreen=False):
                                 "country": getprovincecontroller(selectedprovince),
                             },
                         )
+                        emitmappulse(eventmappos, (212, 169, 77), radius=105, duration=0.62, width=2)
                         dragselectstart = None
                         dragselectcurrent = None
                         continue
@@ -4271,6 +4398,7 @@ def main(eventbus=None, is_fullscreen=False):
                                 "country": getprovincecontroller(selectedprovince),
                             },
                         )
+                        emitmappulse(eventmappos, (212, 169, 77), radius=105, duration=0.62, width=2)
                         dragselectstart = None
                         dragselectcurrent = None
                         continue
@@ -4302,6 +4430,7 @@ def main(eventbus=None, is_fullscreen=False):
                                 "country": getprovincecontroller(hoveredstateprovince),
                             },
                         )
+                        emitmappulse(eventmappos, (212, 169, 77), radius=110, duration=0.62, width=2)
 
                     eventbus.emit(
                         EngineEventType.STATESELECTED,
@@ -4336,6 +4465,7 @@ def main(eventbus=None, is_fullscreen=False):
                         if destinationcountry:
                             runtimeui.select_map_country(destinationcountry)
                             countrymenutarget = None
+                            emitmappulse(eventmappos, (74, 143, 231), radius=120, duration=0.65, width=2)
                             continue
 
                 if hoveredstateid is None and hoveredprovinceid is None:
@@ -4351,6 +4481,7 @@ def main(eventbus=None, is_fullscreen=False):
                             if playercountry and destinationcountry and destinationcountry != playercountry:
                                 countrymenutarget = destinationcountry
                                 routepreviewset = set()
+                                emitmappulse(eventmappos, (212, 169, 77), radius=140, duration=0.7, width=2)
                                 continue
                     countrymenutarget = None
                     continue
@@ -4364,6 +4495,7 @@ def main(eventbus=None, is_fullscreen=False):
                     if destinationcountry not in countriesatwarset:
                         countrymenutarget = destinationcountry
                         routepreviewset = set() # set() is an empty set to clear route preview
+                        emitmappulse(eventmappos, (212, 169, 77), radius=140, duration=0.7, width=2)
                         continue
 
                 countrymenutarget = None
@@ -4475,6 +4607,8 @@ def main(eventbus=None, is_fullscreen=False):
                             "turn": currentturnnumber,
                         },
                     )
+                    emitmappulse(eventmappos, (124, 196, 255), radius=135, duration=0.78, width=3)
+                    camerashakeamount = max(camerashakeamount, 0.55)
 
 
             elif event.type == pygame.MOUSEWHEEL:
@@ -4570,6 +4704,8 @@ def main(eventbus=None, is_fullscreen=False):
                             "playerAP": playerap,
                         },
                     )
+                    emitmappulse((maprect.width * 0.5, maprect.height * 0.5), (67, 181, 129), radius=240, duration=0.92, width=3)
+                    camerashakeamount = max(camerashakeamount, 1.0)
                     if perfturnstart is not None:
                         print(
                             "EBEE_PERF_TURN_ADVANCE "
@@ -4644,6 +4780,22 @@ def main(eventbus=None, is_fullscreen=False):
                 continue
 
 
+
+        if gamephase == "choosecountry" and choosecountry_intro_progress < 1.0:
+            intro = ease_out_cubic(choosecountry_intro_progress)
+            overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, int(238 * (1.0 - intro))))
+            screen.blit(overlay, (0, 0))
+            radius = int(80 + intro * max(screen.get_size()) * 0.45)
+            pulse_surface = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+            pygame.draw.circle(
+                pulse_surface,
+                (212, 169, 77, int(96 * (1.0 - intro))),
+                (screen.get_width() // 2, screen.get_height() // 2),
+                radius,
+                2,
+            )
+            screen.blit(pulse_surface, (0, 0))
 
         pygame.display.flip()
 
