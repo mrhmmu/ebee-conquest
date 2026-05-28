@@ -163,7 +163,7 @@ class PeaceTreatyScreen:
 
         pygame.draw.rect(self.screen, chat_btn_color, self.chat_btn_rect)
         pygame.draw.rect(self.screen, chat_text_color, self.chat_btn_rect, 1)
-        chat_text = self.small_font.render("CHAT (TOGGLE)", True, chat_text_color)
+        chat_text = self.small_font.render("CHAT WITH LEADERS", True, chat_text_color)
         self.screen.blit(chat_text, chat_text.get_rect(center=self.chat_btn_rect.center))
 
         if self.history_btn_rect.collidepoint(mouse_pos):
@@ -176,9 +176,9 @@ class PeaceTreatyScreen:
         self.screen.blit(history_text, history_text.get_rect(center=self.history_btn_rect.center))
 
         if self.submit_btn_rect.collidepoint(mouse_pos):
-            submit_btn_color, submit_text_color = (40, 52, 72), (255, 220, 150)
+            submit_btn_color, submit_text_color = (40, 120, 40), (255, 255, 255) 
         else:
-            submit_btn_color, submit_text_color = (24, 33, 46), (240, 198, 116)
+            submit_btn_color, submit_text_color = (30, 90, 30), (255, 255, 255)   
         pygame.draw.rect(self.screen, submit_btn_color, self.submit_btn_rect)
         pygame.draw.rect(self.screen, submit_text_color, self.submit_btn_rect, 1) 
         submit_text = self.small_font.render("SUBMIT DEMANDS", True, submit_text_color)
