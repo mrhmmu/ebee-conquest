@@ -1,6 +1,7 @@
 import os
 import json
 import math
+import random
 import time
 import platform
 import pygame
@@ -100,6 +101,7 @@ def tacticalmapfill(colorvalue):
 
 
 from game.ingame_ui import InGameUI
+from game.animation.motion import PulseLayer, draw_light_sweep, draw_scanlines, draw_soft_glow, ease_out_cubic, exp_lerp, mix_color, pulse
 from game.focuseffects import FocusEffectContext
 from game.focusloader import loadfocustreeforcountry
 from game.researchui import load_research_data as _load_research_data, RESEARCH_RP_PER_TURN
@@ -124,7 +126,7 @@ from . import npc as npcmodule
 from .events import EventBus, EngineEventType
 
 
-from .apicalltest.newsbannereventtest import NewsSystem, NewsPopup # TEST API CALL
+
 
 
 # THIS FILE IS A MESS!!!!
@@ -922,6 +924,26 @@ def getprovinceatmouse(mouseposition, provincelist, zoomvalue, camerax, cameray,
     # Delegate to API module to keep runtime thin.
     return apimodule.getprovinceatmouse(mouseposition, provincelist, zoomvalue, camerax, cameray, screenrectangle)
 
+
+def getcachedscreenpolygon(polygon, zoomvalue, offsetx, offsety):
+    cachekey = (round(zoomvalue, 4), round(offsetx, 2), round(offsety, 2))
+    cache = polygon.get("_screencache")
+    if cache is None:
+        cache = {}
+        polygon["_screencache"] = cache
+    cachedentry = cache.get(cachekey)
+    if cachedentry is not None:
+        return cachedentry
+
+    polygonrectanglescreen = getscreenrectangle(polygon["rectangle"], zoomvalue, offsetx, offsety)
+    polygonpointsscreen = getscreenpoints(polygon["points"], zoomvalue, offsetx, offsety)
+    polygonpointsscreenint = [(int(pointx), int(pointy)) for pointx, pointy in polygonpointsscreen]
+    cachedentry = (polygonrectanglescreen, polygonpointsscreen, polygonpointsscreenint)
+    if len(cache) > 8:
+        cache.clear()
+    cache[cachekey] = cachedentry
+    return cachedentry
+
 # Loading screen and main loop starts 
 # start after main()
 
@@ -942,26 +964,79 @@ def drawloadingscreen(
         if event.type == pygame.QUIT:
             return False
 
-
     progressvalue = 0.0 if totalcount <= 0 else completedcount / totalcount
-
-
     progressvalue = max(0.0, min(1.0, progressvalue))
+    now = pygame.time.get_ticks() / 1000.0
+    lasttick = getattr(drawloadingscreen, "_lasttick", now)
+    dt = max(0.0, min(0.12, now - lasttick))
+    drawloadingscreen._lasttick = now
+    if completedcount <= 0 or not hasattr(drawloadingscreen, "_displayprogress"):
+        drawloadingscreen._displayprogress = progressvalue
+    else:
+        drawloadingscreen._displayprogress = exp_lerp(
+            drawloadingscreen._displayprogress,
+            progressvalue,
+            7.5,
+            dt,
+        )
+    displayprogress = max(progressvalue, min(1.0, drawloadingscreen._displayprogress))
 
-    screen.fill((18, 18, 22))
     windowwidth, windowheight = screen.get_size()
+    screenrect = screen.get_rect()
+    topcolor = (5, 10, 19)
+    bottomcolor = (13, 22, 37)
+    for y in range(windowheight):
+        t = y / max(1, windowheight - 1)
+        pygame.draw.line(screen, mix_color(topcolor, bottomcolor, t), (0, y), (windowwidth, y))
+    draw_scanlines(screen, screenrect, now, color=(74, 143, 231), alpha=13, spacing=32)
 
-    titletextabovebar = largefont.render(f"Engine: {stage}", True, (240, 240, 240))
-    screen.blit(titletextabovebar, titletextabovebar.get_rect(center=(windowwidth // 2, windowheight // 2 - 40)))
+    center = (windowwidth // 2, int(windowheight * 0.33))
+    orbitalsurface = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+    for ring in range(4):
+        radius = int(50 + ring * 24 + pulse(now, 1.4 + ring * 0.28, ring) * 8)
+        alpha = max(18, 70 - ring * 11)
+        pygame.draw.circle(orbitalsurface, (212, 169, 77, alpha), center, radius, 1)
+    sweepangle = now * 2.6
+    pygame.draw.line(
+        orbitalsurface,
+        (242, 204, 119, 210),
+        center,
+        (
+            int(center[0] + math.cos(sweepangle) * 110),
+            int(center[1] + math.sin(sweepangle) * 110),
+        ),
+        2,
+    )
+    for dotindex in range(18):
+        angle = sweepangle * 0.45 + dotindex * (math.tau / 18.0)
+        orbit = 104 + math.sin(now * 1.6 + dotindex) * 10
+        dotx = int(center[0] + math.cos(angle) * orbit)
+        doty = int(center[1] + math.sin(angle) * orbit * 0.44)
+        pygame.draw.circle(orbitalsurface, (124, 196, 255, 70), (dotx, doty), 2)
+    screen.blit(orbitalsurface, (0, 0))
+
+    titletextabovebar = largefont.render("EBEE CONQUEST", True, (242, 204, 119))
+    stagesurface = smallfont.render(str(stage).upper(), True, (190, 210, 230))
+    screen.blit(titletextabovebar, titletextabovebar.get_rect(center=(windowwidth // 2, windowheight // 2 - 84)))
+    screen.blit(stagesurface, stagesurface.get_rect(center=(windowwidth // 2, windowheight // 2 - 48)))
 
     barwidth = min(760, windowwidth - 120)
-    barheight = 22
+    barheight = 20
     barx = (windowwidth - barwidth) // 2
-    bary = windowheight // 2 - 8
+    bary = windowheight // 2 - 10
+    barrect = pygame.Rect(barx, bary, barwidth, barheight)
 
-    pygame.draw.rect(screen, (60, 60, 70), (barx, bary, barwidth, barheight), border_radius=2)
-    pygame.draw.rect(screen, (120, 190, 255), (barx, bary, int(barwidth * progressvalue), barheight), border_radius=2)
-    pygame.draw.rect(screen, (120, 120, 130), (barx, bary, barwidth, barheight), 1, border_radius=2)
+    draw_soft_glow(screen, barrect.inflate(8, 8), (74, 143, 231), 0.36 + 0.18 * pulse(now, 2.0), radius=9, rings=4)
+    pygame.draw.rect(screen, (20, 30, 45), barrect, border_radius=9)
+    pygame.draw.rect(screen, (67, 82, 105), barrect, 1, border_radius=9)
+    fillrect = barrect.copy()
+    fillrect.width = max(0, int(barwidth * displayprogress))
+    if fillrect.width > 0:
+        pygame.draw.rect(screen, (74, 143, 231), fillrect, border_radius=9)
+        inner = fillrect.inflate(-4, -6)
+        if inner.width > 0 and inner.height > 0:
+            pygame.draw.rect(screen, (242, 204, 119), inner, border_radius=5)
+    draw_light_sweep(screen, barrect, now * 1.4, (255, 235, 160), alpha=34)
 
     overlaytext = statusline if statusline else f"{completedcount}/{totalcount}"
     maxoverlaywidth = max(20, barwidth - 12)
@@ -977,21 +1052,27 @@ def drawloadingscreen(
     screen.blit(overlaytextshadow, shadowrect)
     screen.blit(overlaytextsurface, overlayrect)
 
-    paneltop = bary + 40
+    paneltop = bary + 52
     panelheight = min(180, max(100, windowheight - paneltop - 40))
     panelrect = pygame.Rect(barx, paneltop, barwidth, panelheight)
 
-    pygame.draw.rect(screen, (23, 26, 31), panelrect, border_radius=3)
-    pygame.draw.rect(screen, (60, 70, 85), panelrect, 1, border_radius=3)
+    draw_soft_glow(screen, panelrect, (212, 169, 77), 0.18, radius=8, rings=4)
+    pygame.draw.rect(screen, (11, 17, 28), panelrect, border_radius=7)
+    pygame.draw.rect(screen, (67, 82, 105), panelrect, 1, border_radius=7)
+    pygame.draw.line(screen, (212, 169, 77), (panelrect.x + 16, panelrect.y + 1), (panelrect.right - 16, panelrect.y + 1), 1)
 
     visibleloglines = list(loglines or ())
     maxvisiblelines = max(1, (panelrect.height - 16) // 18)
     visibleloglines = visibleloglines[-maxvisiblelines:]
     texty = panelrect.y + 8
-    for logline in visibleloglines:
-        loglinesurface = smallfont.render(logline, True, (190, 210, 230))
+    for lineindex, logline in enumerate(visibleloglines):
+        linealpha = 145 + int(70 * pulse(now, 1.1, lineindex * 0.55))
+        loglinesurface = smallfont.render(logline, True, (min(255, linealpha), min(255, linealpha + 18), 230))
         screen.blit(loglinesurface, (panelrect.x + 10, texty))
         texty += 18
+
+    footer = smallfont.render("SYNCHRONIZING MAP DATA", True, (132, 145, 160))
+    screen.blit(footer, footer.get_rect(center=(windowwidth // 2, min(windowheight - 26, panelrect.bottom + 28))))
 
     pygame.display.flip()
     return True
@@ -1409,6 +1490,18 @@ def main(eventbus=None, is_fullscreen=False):
             "edgeCount": totaledges,
         },
     )
+    if not drawloadingscreen(
+        screen,
+        loadingtitlefont,
+        loadingtextfont,
+        1,
+        1,
+        stage="Ready",
+        statusline="Entering command view...",
+        loglines=loadingloglines,
+    ):
+        pygame.quit()
+        return
 
 
     
@@ -1428,10 +1521,49 @@ def main(eventbus=None, is_fullscreen=False):
     clock = pygame.time.Clock()
     fpshistory = []
     fpshistorymaxsamples = 180
+    perfautocountry = os.environ.get("EBEE_PERF_AUTO_COUNTRY")
+    try:
+        perfautoturn = int(os.environ.get("EBEE_PERF_AUTO_TURN", "0") or "0")
+    except ValueError:
+        perfautoturn = 0
+    try:
+        perfidleframes = int(os.environ.get("EBEE_PERF_IDLE_FRAMES", "0") or "0")
+    except ValueError:
+        perfidleframes = 0
+    try:
+        perfwarturn = int(os.environ.get("EBEE_PERF_WAR_TURN", "0") or "0")
+    except ValueError:
+        perfwarturn = 0
+    try:
+        perfmonitorturns = int(os.environ.get("EBEE_PERF_MONITOR_TURNS", "0") or "0")
+    except ValueError:
+        perfmonitorturns = 0
+    perfwarcountries = [
+        countryname.strip()
+        for countryname in os.environ.get("EBEE_PERF_WAR_COUNTRIES", "").split(",")
+        if countryname.strip()
+    ]
+    perfmonitoractive = perfwarturn > 0 and perfmonitorturns > 0 and bool(perfwarcountries)
+    perfmonitorstopturn = perfwarturn + perfmonitorturns
+    if perfmonitoractive and perfidleframes <= 0:
+        perfidleframes = 30
+    perfenabled = bool(perfautocountry or perfautoturn or perfidleframes or perfmonitoractive)
+    perfidleframetimes = []
+    perfsectiontotals = {}
+    perfidlecollecting = False
+    perfmonitoridleturn = None
+    perfwarspawned = False
     sea_gradient_cache = None
     sea_gradient_cache_size = None
+    grid_overlay_cache = None
+    grid_overlay_cache_key = None
+    movement_path_overlay_cache = None
+    movement_path_overlay_cache_key = None
     map_vignette_cache = None
     map_vignette_cache_size = None
+    cinematicpulseoverlay = PulseLayer()
+    camerashakeamount = 0.0
+    ambientphasetimer = 0.0
     expandedstateid = None
     selectedprovinceid = None
     selectedprovinceidset = set()
@@ -1489,6 +1621,8 @@ def main(eventbus=None, is_fullscreen=False):
     warpairset = set()
     warrecordlookup = {}
     occupationtransferlookup = {}
+    capitulationtimer = {}
+    capitulatedset = set()
     countrymenutarget = None
     researched_set: set[str] = set()
     researching_node_id: str | None = None
@@ -1737,6 +1871,171 @@ def main(eventbus=None, is_fullscreen=False):
             transferlist.sort(key=lambda item: safeint(item.get("turn"), 0), reverse=True)
             return transferlist[:8]
 
+        def getrecordcountries(record):
+            aggressor = record.get("aggressor")
+            defender = record.get("defender")
+            if not aggressor or not defender:
+                firstcountry, secondcountry = record.get("pair", (None, None))
+                aggressor = aggressor or firstcountry
+                defender = defender or secondcountry
+            return aggressor, defender
+
+        def formatcountrylist(countries, maxnames=2):
+            names = [country for country in countries if country]
+            if not names:
+                return "Unknown"
+            if len(names) <= maxnames:
+                return " + ".join(names)
+            return " + ".join(names[:maxnames]) + f" +{len(names) - maxnames}"
+
+        def getcomponentrecords(componentcountries):
+            componentset = set(componentcountries)
+            entries = []
+            for record in recordlist:
+                aggressor, defender = getrecordcountries(record)
+                if aggressor in componentset and defender in componentset:
+                    entries.append(record)
+            entries.sort(
+                key=lambda record: (
+                    safeint(record.get("startturn"), 0),
+                    str(record.get("aggressor", "")),
+                    str(record.get("defender", "")),
+                )
+            )
+            return entries
+
+        def assignwarsides(componentcountries, componentrecords):
+            sidelookup = {}
+            conflictpairs = []
+            for record in componentrecords:
+                aggressor, defender = getrecordcountries(record)
+                if not aggressor or not defender:
+                    continue
+                if aggressor not in sidelookup and defender not in sidelookup:
+                    sidelookup[aggressor] = 0
+                    sidelookup[defender] = 1
+                elif aggressor in sidelookup and defender not in sidelookup:
+                    sidelookup[defender] = 1 - sidelookup[aggressor]
+                elif defender in sidelookup and aggressor not in sidelookup:
+                    sidelookup[aggressor] = 1 - sidelookup[defender]
+                elif sidelookup[aggressor] == sidelookup[defender]:
+                    conflictpairs.append((aggressor, defender))
+
+            for country in sorted(componentcountries):
+                if country not in sidelookup:
+                    sidelookup[country] = 0
+            return sidelookup, conflictpairs
+
+        def sumcountrycasualties(country, componentrecords):
+            return sum(
+                max(0, safeint(record.get("casualties", {}).get(country, 0), 0))
+                for record in componentrecords
+            )
+
+        def buildcountrywarentry(country, enemycountries, componentrecords):
+            enemyset = set(enemycountries or ())
+            enemycapturedvp = sum(
+                ownedcontrolledvp.get((country, enemycountry), 0.0)
+                for enemycountry in enemyset
+            )
+            enemycapturedprovinces = sum(
+                ownedcontrolledprovinces.get((country, enemycountry), 0)
+                for enemycountry in enemyset
+            )
+            countrytotalvp = totalvp.get(country, 0.0)
+            countrytotalprovinces = totalprovinces.get(country, 0)
+            breakdown = buildcontrollerbreakdown(country)
+            foreignprovinces = sum(item["provinces"] for item in breakdown)
+            return {
+                "country": country,
+                "casualties": max(0, sumcountrycasualties(country, componentrecords)),
+                "manpower": max(0, safeint(fieldmanpower.get(country, 0), 0)),
+                "total_vp": countrytotalvp,
+                "controlled_vp": controlledvp.get(country, 0.0),
+                "enemy_captured_vp": enemycapturedvp,
+                "capitulation_progress": 0.0 if countrytotalvp <= 0 else max(0.0, min(100.0, (enemycapturedvp / countrytotalvp) * 100.0)),
+                "total_provinces": countrytotalprovinces,
+                "controlled_provinces": controlledprovinces.get(country, 0),
+                "enemy_occupied_provinces": enemycapturedprovinces,
+                "foreign_occupied_provinces": foreignprovinces,
+                "occupied_percent": 0.0 if countrytotalprovinces <= 0 else max(0.0, min(100.0, (foreignprovinces / countrytotalprovinces) * 100.0)),
+                "enemy_occupied_percent": 0.0 if countrytotalprovinces <= 0 else max(0.0, min(100.0, (enemycapturedprovinces / countrytotalprovinces) * 100.0)),
+                "occupation_breakdown": breakdown,
+            }
+
+        def aggregatecontrollerbreakdown(countries):
+            aggregate = {}
+            sideprovinces = sum(max(0, safeint(totalprovinces.get(country, 0), 0)) for country in countries)
+            sidevp = sum(max(0.0, float(totalvp.get(country, 0.0) or 0.0)) for country in countries)
+            for country in countries:
+                for item in buildcontrollerbreakdown(country):
+                    controller = item.get("controller")
+                    if not controller:
+                        continue
+                    entry = aggregate.setdefault(controller, {"controller": controller, "provinces": 0, "vp": 0.0})
+                    entry["provinces"] += max(0, safeint(item.get("provinces", 0), 0))
+                    entry["vp"] += max(0.0, float(item.get("vp", 0.0) or 0.0))
+            breakdown = []
+            for entry in aggregate.values():
+                provinces = entry["provinces"]
+                vpheld = entry["vp"]
+                breakdown.append({
+                    "controller": entry["controller"],
+                    "provinces": provinces,
+                    "province_percent": 0.0 if sideprovinces <= 0 else (provinces / sideprovinces) * 100.0,
+                    "vp": vpheld,
+                    "vp_percent": 0.0 if sidevp <= 0 else (vpheld / sidevp) * 100.0,
+                })
+            breakdown.sort(key=lambda item: (item["provinces"], item["vp"]), reverse=True)
+            return breakdown
+
+        def buildwarcomponents():
+            adjacency = {}
+            for record in recordlist:
+                aggressor, defender = getrecordcountries(record)
+                if not aggressor or not defender:
+                    continue
+                adjacency.setdefault(aggressor, set()).add(defender)
+                adjacency.setdefault(defender, set()).add(aggressor)
+
+            components = []
+            seen = set()
+            for country in sorted(adjacency):
+                if country in seen:
+                    continue
+                stack = [country]
+                component = set()
+                while stack:
+                    current = stack.pop()
+                    if current in component:
+                        continue
+                    component.add(current)
+                    stack.extend(adjacency.get(current, set()) - component)
+                seen.update(component)
+                components.append(component)
+            return components
+
+        def buildsideentry(sidecountries, sideentries, enemycountries):
+            sidecountries = list(sidecountries)
+            totalprovs = sum(max(0, safeint(entry.get("total_provinces", 0), 0)) for entry in sideentries)
+            enemyprovs = sum(max(0, safeint(entry.get("enemy_occupied_provinces", 0), 0)) for entry in sideentries)
+            totalvps = sum(max(0.0, float(entry.get("total_vp", 0.0) or 0.0)) for entry in sideentries)
+            enemyvps = sum(max(0.0, float(entry.get("enemy_captured_vp", 0.0) or 0.0)) for entry in sideentries)
+            return {
+                "label": formatcountrylist(sidecountries),
+                "countries": sidecountries,
+                "enemy_countries": list(enemycountries),
+                "country_entries": sideentries,
+                "casualties": sum(max(0, safeint(entry.get("casualties", 0), 0)) for entry in sideentries),
+                "manpower": sum(max(0, safeint(entry.get("manpower", 0), 0)) for entry in sideentries),
+                "total_vp": totalvps,
+                "enemy_captured_vp": enemyvps,
+                "pressure": 0.0 if totalvps <= 0 else max(0.0, min(100.0, (enemyvps / totalvps) * 100.0)),
+                "total_provinces": totalprovs,
+                "enemy_occupied_provinces": enemyprovs,
+                "enemy_occupied_percent": 0.0 if totalprovs <= 0 else max(0.0, min(100.0, (enemyprovs / totalprovs) * 100.0)),
+            }
+
         def buildwarentry(record):
             aggressor = record.get("aggressor")
             defender = record.get("defender")
@@ -1805,14 +2104,223 @@ def main(eventbus=None, is_fullscreen=False):
                 "occupation_transfers": transferlist,
             }
 
-        wars = [entry for entry in (buildwarentry(record) for record in recordlist) if entry is not None]
+        pairwars = [entry for entry in (buildwarentry(record) for record in recordlist) if entry is not None]
+        pairlookup = {entry.get("id"): entry for entry in pairwars}
+
+        wars = []
+        for componentcountries in buildwarcomponents():
+            componentrecords = getcomponentrecords(componentcountries)
+            if not componentrecords:
+                continue
+            sidelookup, conflictpairs = assignwarsides(componentcountries, componentrecords)
+            attackers = sorted(
+                [country for country, side in sidelookup.items() if side == 0],
+                key=lambda country: (0 if country == playercountry else 1, country),
+            )
+            defenders = sorted(
+                [country for country, side in sidelookup.items() if side == 1],
+                key=lambda country: (0 if country == playercountry else 1, country),
+            )
+            if not attackers or not defenders:
+                continue
+
+            countryenemylookup = {country: set() for country in componentcountries}
+            for record in componentrecords:
+                recordaggressor, recorddefender = getrecordcountries(record)
+                if not recordaggressor or not recorddefender:
+                    continue
+                countryenemylookup.setdefault(recordaggressor, set()).add(recorddefender)
+                countryenemylookup.setdefault(recorddefender, set()).add(recordaggressor)
+
+            attackerentries = [
+                buildcountrywarentry(country, countryenemylookup.get(country, defenders), componentrecords)
+                for country in attackers
+            ]
+            defenderentries = [
+                buildcountrywarentry(country, countryenemylookup.get(country, attackers), componentrecords)
+                for country in defenders
+            ]
+            attackerentries.sort(key=lambda item: (0 if item.get("country") == playercountry else 1, -safeint(item.get("manpower", 0), 0), item.get("country", "")))
+            defenderentries.sort(key=lambda item: (0 if item.get("country") == playercountry else 1, -safeint(item.get("manpower", 0), 0), item.get("country", "")))
+
+            attackerside = buildsideentry(attackers, attackerentries, defenders)
+            defenderside = buildsideentry(defenders, defenderentries, attackers)
+            componentpairwars = []
+            for record in componentrecords:
+                pair = record.get("pair")
+                pairid = "|".join(pair) if pair else None
+                if pairid and pairid in pairlookup:
+                    componentpairwars.append(pairlookup[pairid])
+
+            relevantcountries = set(componentcountries)
+            attackerbreakdown = aggregatecontrollerbreakdown(attackers)
+            defenderbreakdown = aggregatecontrollerbreakdown(defenders)
+            relevantcountries.update(item["controller"] for item in attackerbreakdown)
+            relevantcountries.update(item["controller"] for item in defenderbreakdown)
+            startturns = [safeint(record.get("startturn"), currentturnnumber) for record in componentrecords]
+            startturn = min(startturns) if startturns else currentturnnumber
+            leaderattacker = attackers[0]
+            leaderdefender = defenders[0]
+            attackersidepressure = defenderside["pressure"]
+            defendersidepressure = attackerside["pressure"]
+            warentry = {
+                "id": "group|" + "|".join(sorted(componentcountries)),
+                "name": f"{formatcountrylist(attackers)} vs {formatcountrylist(defenders)}",
+                "aggressor": leaderattacker,
+                "defender": leaderdefender,
+                "attacker_label": attackerside["label"],
+                "defender_label": defenderside["label"],
+                "attackers": attackerentries,
+                "defenders": defenderentries,
+                "attacker_side": attackerside,
+                "defender_side": defenderside,
+                "war_pairs": componentpairwars,
+                "pair_count": len(componentpairwars),
+                "active_war_count": len(warpairset),
+                "start_turn": startturn,
+                "progress": attackersidepressure,
+                "defender_progress": defendersidepressure,
+                "defender_occupied_percent": defenderside["enemy_occupied_percent"],
+                "aggressor_occupied_percent": attackerside["enemy_occupied_percent"],
+                "aggressor_casualties": attackerside["casualties"],
+                "defender_casualties": defenderside["casualties"],
+                "total_casualties": attackerside["casualties"] + defenderside["casualties"],
+                "aggressor_manpower": attackerside["manpower"],
+                "defender_manpower": defenderside["manpower"],
+                "aggressor_total_vp": attackerside["total_vp"],
+                "defender_total_vp": defenderside["total_vp"],
+                "aggressor_captured_vp": defenderside["enemy_captured_vp"],
+                "defender_captured_vp": attackerside["enemy_captured_vp"],
+                "aggressor_total_provinces": attackerside["total_provinces"],
+                "defender_total_provinces": defenderside["total_provinces"],
+                "aggressor_occupied_enemy_provinces": defenderside["enemy_occupied_provinces"],
+                "defender_occupied_enemy_provinces": attackerside["enemy_occupied_provinces"],
+                "aggressor_foreign_occupied_provinces": attackerside["enemy_occupied_provinces"],
+                "defender_foreign_occupied_provinces": defenderside["enemy_occupied_provinces"],
+                "aggressor_occupation_breakdown": attackerbreakdown,
+                "defender_occupation_breakdown": defenderbreakdown,
+                "occupation_transfers": buildtransferlist(relevantcountries),
+                "side_conflicts": conflictpairs,
+            }
+            wars.append(warentry)
+
+        if not wars:
+            wars = pairwars
         if not wars:
             return {"wars": [], "active_war_count": 0}
 
+        wars.sort(
+            key=lambda war: (
+                0 if playercountry and any(entry.get("country") == playercountry for entry in war.get("attackers", []) + war.get("defenders", [])) else 1,
+                -safeint(war.get("pair_count", 1), 1),
+                -safeint(war.get("start_turn"), 0),
+                str(war.get("name", "")),
+            )
+        )
         data = dict(wars[0])
         data["wars"] = wars
         data["active_war_count"] = len(wars)
+        data["active_pair_count"] = len(pairwars)
         return data
+
+    def executecapitulation(defeatedcountry, victoriouscountry):
+        if defeatedcountry in capitulatedset:
+            return
+        capitulatedset.add(defeatedcountry)
+
+        aggressorcolor = countrytocolorlookup.get(victoriouscountry, (85, 85, 85))
+        for province in provincemap.values():
+            owner = getprovinceowner(province)
+            prevcontroller = getprovincecontroller(province)
+
+            if owner == defeatedcountry:
+                setprovincecontroller(province, victoriouscountry, aggressorcolor)
+            elif prevcontroller == defeatedcountry:
+                actualowner = getprovinceowner(province)
+                ownercolor = countrytocolorlookup.get(actualowner, (85, 85, 85))
+                setprovincecontroller(province, actualowner, ownercolor)
+            else:
+                continue
+
+            eventbus.emit(EngineEventType.PROVINCECONTROLCHANGED, {
+                "provinceId": province.get("id"),
+                "previousController": prevcontroller,
+                "newController": getprovincecontroller(province),
+            })
+
+        for pair in list(warpairset):
+            if defeatedcountry in pair:
+                warrecordlookup.pop(pair, None)
+                warpairset.discard(pair)
+
+        countriesatwarset.discard(defeatedcountry)
+        capitulationtimer.pop(defeatedcountry, None)
+        nonlocal countrybordersdirty
+        countrybordersdirty = True
+
+        eventbus.emit(EngineEventType.CAPITULATED, {
+            "defender": defeatedcountry,
+            "aggressor": victoriouscountry,
+            "turn": currentturnnumber,
+        })
+
+        pushnotification(
+            "CAPITULATION",
+            f"{defeatedcountry} has capitulated to {victoriouscountry}!",
+        )
+
+    def checkcapitulations():
+        metrics = buildwarcountrymetrics()
+        totalvp = metrics["totalvp"]
+        ownedcontrolledvp = metrics["ownedcontrolledvp"]
+
+        def check_victim_capitulation(victimpairs):
+            for victim, enemies in victimpairs.items():
+                victimtotalvp = totalvp.get(victim, 0.0)
+                if victimtotalvp <= 0:
+                    continue
+                totalcapturedvp = 0.0
+                leader = None
+                leadercapturedvp = 0.0
+                for enemy in enemies:
+                    capturedvp = ownedcontrolledvp.get((victim, enemy), 0.0)
+                    totalcapturedvp += capturedvp
+                    if capturedvp > leadercapturedvp:
+                        leadercapturedvp = capturedvp
+                        leader = enemy
+                progress = (totalcapturedvp / victimtotalvp) * 100.0
+                if progress >= 80.0 and leader:
+                    if victim not in capitulationtimer:
+                        stability = playerstability if victim == playercountry else npcdirector.countryeconomy.get(victim, {}).get("stability", 50.0)
+                        graceturns = int(10 + (stability / 100.0) * 10)
+                        capitulationtimer[victim] = {
+                            "capitulateturn": currentturnnumber + graceturns,
+                            "aggressor": leader,
+                        }
+                        pushnotification(
+                            "CAPITULATION RISK",
+                            f"{victim} is at risk of capitulation in {graceturns} turns.",
+                        )
+                    elif currentturnnumber >= capitulationtimer[victim]["capitulateturn"]:
+                        executecapitulation(victim, capitulationtimer[victim]["aggressor"])
+
+        defenderpairs = {}
+        aggressorpairs = {}
+        for pair in list(warpairset):
+            record = warrecordlookup.get(pair)
+            if not record:
+                continue
+            aggressor = record.get("aggressor")
+            defender = record.get("defender")
+            if not aggressor or not defender:
+                continue
+            if defender not in capitulatedset:
+                defenderpairs.setdefault(defender, []).append(aggressor)
+            if aggressor not in capitulatedset:
+                aggressorpairs.setdefault(aggressor, []).append(defender)
+
+        check_victim_capitulation(defenderpairs)
+        check_victim_capitulation(aggressorpairs)
 
     def nextfrontlineid():
         nonlocal frontlineassignmentcounter
@@ -2132,6 +2640,58 @@ def main(eventbus=None, is_fullscreen=False):
             "from_occupation": previouscontroller != owner,
         }
 
+    def perfspawnwarsforsources(sourcecountries):
+        createdpairs = []
+        for rawsourcecountry in sourcecountries:
+            sourcecountry = canonicalizecountry(rawsourcecountry)
+            if not sourcecountry:
+                continue
+
+            targetcountryset = set()
+            for provinceid, province in provincemap.items():
+                if getprovincecontroller(province) != sourcecountry:
+                    continue
+                for neighborid in provincegraph.get(provinceid, ()):
+                    neighborprovince = provincemap.get(neighborid)
+                    if not neighborprovince:
+                        continue
+                    neighborcountry = canonicalizecountry(getprovincecontroller(neighborprovince))
+                    if neighborcountry and neighborcountry != sourcecountry:
+                        targetcountryset.add(neighborcountry)
+
+            if not targetcountryset:
+                targetcountryset = {
+                    canonicalizecountry(province.get("country"))
+                    for province in provincemap.values()
+                    if province.get("country")
+                }
+                targetcountryset.discard(sourcecountry)
+
+            for targetcountry in sorted(targetcountryset):
+                normalizedpair = normalizewarpair(sourcecountry, targetcountry)
+                if normalizedpair is None or normalizedpair in warpairset:
+                    continue
+                eventbus.emit(
+                    EngineEventType.WARDECLARED,
+                    {
+                        "attacker": sourcecountry,
+                        "defender": targetcountry,
+                        "turn": currentturnnumber,
+                        "source": "perfspawnwar",
+                    },
+                )
+                createdpairs.append((sourcecountry, targetcountry))
+
+        npcdirector.sync_player_wars(playercountry, countriesatwarset, warpairset=warpairset)
+        print(
+            "EBEE_PERF_SPAWNWAR "
+            f"turn={currentturnnumber} sources={','.join(sourcecountries)} "
+            f"created={len(createdpairs)} active_wars={len(warpairset)} "
+            f"pairs={createdpairs[:12]}",
+            flush=True,
+        )
+        return createdpairs
+
     eventbus.subscribe(EngineEventType.WARDECLARED, handlewardeclared)
     eventbus.subscribe("warended", handlewarended)
     eventbus.subscribe(EngineEventType.COMBATRESOLVED, handlecombatresolved)
@@ -2343,9 +2903,37 @@ def main(eventbus=None, is_fullscreen=False):
             npcdirector.sync_player_wars(playercountry, countriesatwarset, warpairset=warpairset)
 
     devconsole = developmentconsole(enabled=developmentmode)
-    newssystem = NewsSystem(eventbus)
-    newssystem.start()
-    newspopup = NewsPopup()
+    notifications = []
+    _notif_id_counter = 0
+
+    def emitmappulse(position, color=(212, 169, 77), radius=110, duration=0.75, width=2):
+        if position is None:
+            return
+        cinematicpulseoverlay.emit(position, color, radius=radius, duration=duration, width=width)
+
+    def pushnotification(title, description):
+        nonlocal _notif_id_counter
+        _notif_id_counter += 1
+        notifications.append({
+            "id": _notif_id_counter,
+            "title": str(title),
+            "description": str(description),
+            "turn": currentturnnumber,
+            "read": False,
+        })
+        emitmappulse((maprect.width * 0.5, maprect.height * 0.18), (212, 169, 77), radius=170, duration=0.9, width=3)
+    eventbus.subscribe(EngineEventType.WARDECLARED, lambda p: pushnotification(
+        "WAR DECLARED",
+        f"{p.get('attacker', '?')} declared war on {p.get('defender', '?')}!"
+    ))
+    eventbus.subscribe("newspopup", lambda p: pushnotification(
+        p.get("title", "NEWS UPDATE"),
+        p.get("description", "No description."),
+    ))
+    eventbus.subscribe("countrycollapsed", lambda p: pushnotification(
+        "COUNTRY COLLAPSED",
+        p.get("description", f"{p.get('country', '?')} has collapsed."),
+    ))
     scriptmanager = scriptengine.initscripts("scripts", autoload=True)
     # UI chrome + map viewport
     # runtime-owned font/caches (previously stored on EngineUI)
@@ -2370,8 +2958,24 @@ def main(eventbus=None, is_fullscreen=False):
 
     isrunning = True
     choosecountry_fit_state = {"done": False, "w": None, "h": None}
+    choosecountry_intro_progress = 0.0
     while isrunning:
+        if perfenabled:
+            perf_frame_start = time.perf_counter()
+            perf_section_start = perf_frame_start
+            perf_sections_frame = {}
+        else:
+            perf_frame_start = 0.0
+            perf_section_start = 0.0
+            perf_sections_frame = {}
         elapsedseconds = clock.tick(60) / 1000.0
+        ambientphasetimer += elapsedseconds
+        camerashakeamount = max(0.0, camerashakeamount - elapsedseconds * 18.0)
+        cinematicpulseoverlay.update(elapsedseconds)
+        if gamephase == "choosecountry":
+            choosecountry_intro_progress = min(1.0, choosecountry_intro_progress + elapsedseconds * 0.62)
+        else:
+            choosecountry_intro_progress = 1.0
         updatescriptengine()
         esomodule.updaterollingfpshistory(fpshistory, clock.get_fps(), fpshistorymaxsamples)
         mouseposition_full = pygame.mouse.get_pos()
@@ -2431,6 +3035,50 @@ def main(eventbus=None, is_fullscreen=False):
         else:
             choosecountry_fit_state["done"] = False
 
+        if perfautocountry and gamephase == "choosecountry":
+            playercountry = perfautocountry
+            gamephase = "play"
+            pendingcountry = None
+            countrybordersdirty = True
+            expandedstateid = None
+            selectedprovinceid = None
+            selectedprovinceidset = set()
+            routepreviewset = set()
+            frontlineplacementmode = False
+            activefrontlineedgekeyset = set()
+            frontlineassignmentlist = []
+            frontlinebordersegmentcache = {}
+            countriesatwarset = set()
+            warpairset = set()
+            warrecordlookup.clear()
+            occupationtransferlookup.clear()
+            npcdirector.setplayercountry(playercountry)
+            npcdirector.sync_player_wars(playercountry, countriesatwarset, warpairset=warpairset)
+            focustree = loadfocustreeforcountry(playercountry)
+            updatescriptengine()
+            eventbus.emit(
+                EngineEventType.PLAYERCOUNTRYSELECTED,
+                {
+                    "country": playercountry,
+                },
+            )
+            perfautocountry = None
+        if perfmonitoractive and gamephase == "play":
+            if currentturnnumber < perfwarturn:
+                pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
+            elif currentturnnumber <= perfmonitorstopturn:
+                if not perfwarspawned:
+                    perfspawnwarsforsources(perfwarcountries)
+                    perfwarspawned = True
+                    countrybordersdirty = True
+                perfidlecollecting = True
+            else:
+                isrunning = False
+        elif perfautoturn and gamephase == "play" and currentturnnumber < perfautoturn:
+            pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
+        elif perfautoturn and perfidleframes and not perfidlecollecting and currentturnnumber >= perfautoturn:
+            perfidlecollecting = True
+
         # TEMP: disable horizontal edge scrolling (re-enable later)
         # cameramodule.applyedgepan(
         #     camerastate,
@@ -2466,8 +3114,10 @@ def main(eventbus=None, is_fullscreen=False):
         cameramodule.clampcamerastate(camerastate, windowheight, mapbox)
 
         zoomvalue = camerastate.zoom
-        camerax = camerastate.x
-        cameray = camerastate.y
+        shakephase = ambientphasetimer * 42.0
+        shakefalloff = camerashakeamount * camerashakeamount
+        camerax = camerastate.x + math.sin(shakephase) * shakefalloff
+        cameray = camerastate.y + math.cos(shakephase * 1.21) * shakefalloff * 0.72
 
         # draw the map inside the viewport subsurface
         map_w, map_h = screen.get_size()
@@ -2515,31 +3165,46 @@ def main(eventbus=None, is_fullscreen=False):
             copyshiftlist = [0]
 
         gridworldspacing = 64.0 / max(0.01, minimumzoomforframe)
-        grid_overlay = pygame.Surface((map_w, map_h), pygame.SRCALPHA)
-        for copyshift in copyshiftlist:
-            drawcamerax = camerax + copyshift
-            visibleworldleft = (0 - drawcamerax) / zoomvalue
-            visibleworldright = (map_w - drawcamerax) / zoomvalue
-            firstgridx = math.floor(visibleworldleft / gridworldspacing) * gridworldspacing
-            gridx = firstgridx
-            while gridx <= visibleworldright:
-                screenx = int(gridx * zoomvalue + drawcamerax)
-                gridindex = int(round(gridx / gridworldspacing))
-                color = (90, 128, 160, 38) if gridindex % 4 == 0 else (74, 143, 231, 24)
-                pygame.draw.line(grid_overlay, color, (screenx, 0), (screenx, map_h), 1)
-                gridx += gridworldspacing
+        current_grid_key = (
+            map_w,
+            map_h,
+            round(zoomvalue, 4),
+            round(camerax, 2),
+            round(cameray, 2),
+            tuple(round(copyshift, 2) for copyshift in copyshiftlist),
+            round(gridworldspacing, 4),
+        )
+        if grid_overlay_cache is None or grid_overlay_cache_key != current_grid_key:
+            grid_overlay_cache_key = current_grid_key
+            grid_overlay_cache = pygame.Surface((map_w, map_h), pygame.SRCALPHA)
+            for copyshift in copyshiftlist:
+                drawcamerax = camerax + copyshift
+                visibleworldleft = (0 - drawcamerax) / zoomvalue
+                visibleworldright = (map_w - drawcamerax) / zoomvalue
+                firstgridx = math.floor(visibleworldleft / gridworldspacing) * gridworldspacing
+                gridx = firstgridx
+                while gridx <= visibleworldright:
+                    screenx = int(gridx * zoomvalue + drawcamerax)
+                    gridindex = int(round(gridx / gridworldspacing))
+                    color = (90, 128, 160, 38) if gridindex % 4 == 0 else (74, 143, 231, 24)
+                    pygame.draw.line(grid_overlay_cache, color, (screenx, 0), (screenx, map_h), 1)
+                    gridx += gridworldspacing
 
-        visibleworldtop = (0 - cameray) / zoomvalue
-        visibleworldbottom = (map_h - cameray) / zoomvalue
-        firstgridy = math.floor(visibleworldtop / gridworldspacing) * gridworldspacing
-        gridy = firstgridy
-        while gridy <= visibleworldbottom:
-            screeny = int(gridy * zoomvalue + cameray)
-            gridindex = int(round(gridy / gridworldspacing))
-            color = (90, 128, 160, 38) if gridindex % 4 == 0 else (74, 143, 231, 24)
-            pygame.draw.line(grid_overlay, color, (0, screeny), (map_w, screeny), 1)
-            gridy += gridworldspacing
-        screen.blit(grid_overlay, (0, 0))
+            visibleworldtop = (0 - cameray) / zoomvalue
+            visibleworldbottom = (map_h - cameray) / zoomvalue
+            firstgridy = math.floor(visibleworldtop / gridworldspacing) * gridworldspacing
+            gridy = firstgridy
+            while gridy <= visibleworldbottom:
+                screeny = int(gridy * zoomvalue + cameray)
+                gridindex = int(round(gridy / gridworldspacing))
+                color = (90, 128, 160, 38) if gridindex % 4 == 0 else (74, 143, 231, 24)
+                pygame.draw.line(grid_overlay_cache, color, (0, screeny), (map_w, screeny), 1)
+                gridy += gridworldspacing
+        screen.blit(grid_overlay_cache, (0, 0))
+        if perfidlecollecting:
+            now = time.perf_counter()
+            perf_sections_frame["background_grid"] = (now - perf_section_start) * 1000.0
+            perf_section_start = now
 
         if blackedoutworldsurface is not None:
             if zoomvalue <= 1.45:
@@ -2607,14 +3272,17 @@ def main(eventbus=None, is_fullscreen=False):
 
 
                     for polygon in drawitem["polygons"]:
-                        polygonrectanglescreen = getscreenrectangle(polygon["rectangle"], zoomvalue, drawcamerax, cameray)
+                        polygonrectanglescreen, polygonpointsscreen, polygonpointsscreenint = getcachedscreenpolygon(
+                            polygon,
+                            zoomvalue,
+                            drawcamerax,
+                            cameray,
+                        )
                         if not polygonrectanglescreen.colliderect(screenrectangle):
                             continue
 
 
 
-                        polygonpointsscreen = getscreenpoints(polygon["points"], zoomvalue, drawcamerax, cameray)
-                        polygonpointsscreenint = [(int(pointx), int(pointy)) for pointx, pointy in polygonpointsscreen]
                         if len(polygonpointsscreenint) < 3:
                             continue
                         drawpolygonlist.append(polygonpointsscreenint)
@@ -2666,11 +3334,19 @@ def main(eventbus=None, is_fullscreen=False):
 
 
                     elif drawitem.get("id") in selectedprovinceidset:
-                        basefillcolor = (232, 214, 103)
+                        basefillcolor = mix_color(
+                            (232, 214, 103),
+                            (255, 241, 166),
+                            0.38 * pulse(ambientphasetimer, 3.4, itemrectanglescreen.centerx * 0.01),
+                        )
 
 
                     elif drawitem.get("id") in routepreviewset:
-                        basefillcolor = (95, 145, 255)
+                        basefillcolor = mix_color(
+                            (95, 145, 255),
+                            (160, 210, 255),
+                            0.45 * pulse(ambientphasetimer, 4.6, itemrectanglescreen.centery * 0.014),
+                        )
 
 
                     # ESO optimization 22/04
@@ -2679,7 +3355,11 @@ def main(eventbus=None, is_fullscreen=False):
                     
                     
                     elif drawitem.get("id") in movingprovinceidset:
-                        basefillcolor = (132, 96, 226)
+                        basefillcolor = mix_color(
+                            (132, 96, 226),
+                            (198, 165, 255),
+                            0.42 * pulse(ambientphasetimer, 5.0, itemrectanglescreen.centerx * 0.018),
+                        )
 
 
 
@@ -2716,10 +3396,14 @@ def main(eventbus=None, is_fullscreen=False):
                     ):
                         basefillcolor = tacticalmapfill(basefillcolor)
 
-                    finalfillcolor = hovercolor if itemhovered else basefillcolor
+                    finalfillcolor = mix_color(hovercolor, (255, 226, 138), 0.25 * pulse(ambientphasetimer, 6.0)) if itemhovered else basefillcolor
                     for drawpolygon in drawpolygonlist:
                         pygame.draw.polygon(screen, finalfillcolor, drawpolygon)
                         pygame.draw.polygon(screen, (18, 27, 34), drawpolygon, 1)
+        if perfidlecollecting:
+            now = time.perf_counter()
+            perf_sections_frame["map_polygons"] = (now - perf_section_start) * 1000.0
+            perf_section_start = now
 
         # ESO optimization 22/04
         # O(cp*k) --> O(p*k)
@@ -2783,18 +3467,52 @@ def main(eventbus=None, is_fullscreen=False):
 
            troopbadgelist = troopbadgelist_raw
            
+        if perfidlecollecting:
+            now = time.perf_counter()
+            perf_sections_frame["troop_badges"] = (now - perf_section_start) * 1000.0
+            perf_section_start = now
 
         if gamephase == "play" and movementorderlist:
-            gui_drawmovementorderpaths(
-                screen,
-                movementorderlist,
-                provincemap,
-                zoomvalue,
-                camerax,
-                cameray,
-                copyshiftlist,
-                screenrectangle,
+            current_movement_path_key = (
+                map_w,
+                map_h,
+                round(zoomvalue, 4),
+                round(camerax, 2),
+                round(cameray, 2),
+                tuple(round(copyshift, 2) for copyshift in copyshiftlist),
+                tuple(
+                    (
+                        id(order.get("path")),
+                        int(order.get("index", 0)),
+                        order.get("current"),
+                        int(order.get("amount", 0)),
+                        order.get("_resumeonturn"),
+                        tuple(order.get("countrycolor") or ()),
+                    )
+                    for order in movementorderlist
+                ),
             )
+            if movement_path_overlay_cache is None or movement_path_overlay_cache_key != current_movement_path_key:
+                movement_path_overlay_cache_key = current_movement_path_key
+                movement_path_overlay_cache = pygame.Surface((map_w, map_h), pygame.SRCALPHA)
+                gui_drawmovementorderpaths(
+                    movement_path_overlay_cache,
+                    movementorderlist,
+                    provincemap,
+                    zoomvalue,
+                    camerax,
+                    cameray,
+                    copyshiftlist,
+                    screenrectangle,
+                )
+            screen.blit(movement_path_overlay_cache, (0, 0))
+        else:
+            movement_path_overlay_cache = None
+            movement_path_overlay_cache_key = None
+        if perfidlecollecting:
+            now = time.perf_counter()
+            perf_sections_frame["movement_paths"] = (now - perf_section_start) * 1000.0
+            perf_section_start = now
 
         if countrybordersdirty:
             countryborderentrylist = esomodule.buildcountryborderentries(
@@ -2829,6 +3547,10 @@ def main(eventbus=None, is_fullscreen=False):
                 countrylabelcache,
                 gamephase,
             )
+        if perfidlecollecting:
+            now = time.perf_counter()
+            perf_sections_frame["borders_labels_capitals"] = (now - perf_section_start) * 1000.0
+            perf_section_start = now
 
         if gamephase == "play":
             capitalhitlist = drawcapitalmarkers(
@@ -2914,14 +3636,16 @@ def main(eventbus=None, is_fullscreen=False):
                 ishoveredborder = frontlineplacementmode and edgekey == hoveredfrontlineedgekey
 
                 if frontlineplacementmode:
-                    bordercolor = (255, 236, 145) if ishoveredborder else (235, 205, 92)
-                    borderwidth = 4 if ishoveredborder else 2
+                    activepulse = pulse(ambientphasetimer, 5.5, segmentstart[0] * 0.02)
+                    bordercolor = (255, 236, 145) if ishoveredborder else mix_color((235, 205, 92), (255, 244, 169), activepulse * 0.35)
+                    borderwidth = 4 if ishoveredborder else (2 + int(activepulse > 0.78))
                     pygame.draw.line(screen, bordercolor, segmentstart, segmentend, borderwidth)
 
                 if isactivefrontline:
-                    pygame.draw.line(screen, (185, 24, 24), segmentstart, segmentend, 8)
-                    pygame.draw.line(screen, (220, 42, 42), segmentstart, segmentend, 5)
-                    pygame.draw.line(screen, (255, 96, 96), segmentstart, segmentend, 2)
+                    frontpulse = pulse(ambientphasetimer, 4.8, segmentstart[1] * 0.017)
+                    pygame.draw.line(screen, mix_color((185, 24, 24), (255, 72, 72), frontpulse * 0.24), segmentstart, segmentend, 8)
+                    pygame.draw.line(screen, mix_color((220, 42, 42), (255, 110, 110), frontpulse * 0.28), segmentstart, segmentend, 5)
+                    pygame.draw.line(screen, (255, 126, 126) if frontpulse > 0.78 else (255, 96, 96), segmentstart, segmentend, 2)
 
             if frontlineplacementmode:
                 placementsegmentlist = [(segmentstart, segmentend) for _, segmentstart, segmentend in frontlineoverlaysegments]
@@ -2939,6 +3663,11 @@ def main(eventbus=None, is_fullscreen=False):
                 pygame.draw.line(screen, (185, 24, 24), bridgestart, bridgeend, 8)
                 pygame.draw.line(screen, (220, 42, 42), bridgestart, bridgeend, 5)
                 pygame.draw.line(screen, (255, 96, 96), bridgestart, bridgeend, 2)
+        if perfidlecollecting:
+            now = time.perf_counter()
+            perf_sections_frame["frontline_overlay"] = (now - perf_section_start) * 1000.0
+            perf_section_start = now
+        cinematicpulseoverlay.draw(screen)
 
         selectedtroopentries = getselectedtroopentries(
             selectedprovinceidset,
@@ -2969,7 +3698,7 @@ def main(eventbus=None, is_fullscreen=False):
         # switch back to the full window surface for UI chrome
         screen = screen_main
         warprogressdata = {}
-        if gamephase == "play" and warpairset and runtimeui.warprogressopen:
+        if gamephase == "play" and warpairset and (runtimeui.warprogressopen or runtimeui.active_left_tab == "COMBAT"):
             warprogressdata = buildwarprogressdata()
 
             
@@ -2998,12 +3727,11 @@ def main(eventbus=None, is_fullscreen=False):
                 "stability": stability,
                 "leader": base_stats.get("leader", "Unknown"),
             }
-       
+        if perfidlecollecting:
+            now = time.perf_counter()
+            perf_sections_frame["ui_state_prep"] = (now - perf_section_start) * 1000.0
+            perf_section_start = now
         
-        notificationcount = len(getattr(newssystem, "queue", ()))
-        if getattr(newssystem, "current", None) is not None:
-            notificationcount += 1
-
         runtimeui.sync(
             gamephase,
             pendingcountry,
@@ -3040,11 +3768,15 @@ def main(eventbus=None, is_fullscreen=False):
                 "fps": clock.get_fps(),
                 "latency_ms": elapsedseconds * 1000.0,
             },
-            notificationcount=notificationcount,
+            notifications=notifications,
         )
         runtimeui.update(elapsedseconds)
         runtimeui.draw(screen)
         scriptengine.draw_script_ui(screen)
+        if perfidlecollecting:
+            now = time.perf_counter()
+            perf_sections_frame["runtime_ui_draw"] = (now - perf_section_start) * 1000.0
+            perf_section_start = now
 
 
 
@@ -3065,7 +3797,60 @@ def main(eventbus=None, is_fullscreen=False):
 
         #DRAW GUIS, ON TOP
         devconsole.draw(screen, normalfont, smallfont, clock, "dev console") # draw dev console after ui so that it appears on top
-        newspopup.draw(screen, (titlefont, normalfont), newssystem.current)
+
+        if perfidlecollecting:
+            now = time.perf_counter()
+            perf_sections_frame["overlays_console"] = (now - perf_section_start) * 1000.0
+            if perfmonitoractive:
+                if perfmonitoridleturn != currentturnnumber:
+                    perfmonitoridleturn = currentturnnumber
+                    perfidleframetimes = []
+                    perfsectiontotals = {}
+                perfidleframetimes.append((now - perf_frame_start) * 1000.0)
+                for sectionname, sectionms in perf_sections_frame.items():
+                    perfsectiontotals[sectionname] = perfsectiontotals.get(sectionname, 0.0) + sectionms
+                if len(perfidleframetimes) >= perfidleframes:
+                    ordered = sorted(perfidleframetimes)
+                    avg = sum(perfidleframetimes) / len(perfidleframetimes)
+                    p95 = ordered[int(len(ordered) * 0.95) - 1]
+                    print(
+                        "EBEE_PERF_TURN_IDLE "
+                        f"turn={currentturnnumber} frames={len(perfidleframetimes)} "
+                        f"avg_ms={avg:.3f} p95_ms={p95:.3f} "
+                        f"fps_est={1000.0 / max(0.001, avg):.1f} "
+                        f"orders={len(movementorderlist)} active_wars={len(warpairset)}",
+                        flush=True,
+                    )
+                    for sectionname, totalms in sorted(perfsectiontotals.items(), key=lambda item: item[1], reverse=True):
+                        print(
+                            f"EBEE_PERF_TURN_SECTION turn={currentturnnumber} "
+                            f"{sectionname} avg_ms={totalms / len(perfidleframetimes):.3f}",
+                            flush=True,
+                        )
+                    perfidlecollecting = False
+                    if currentturnnumber < perfmonitorstopturn:
+                        pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE))
+                    else:
+                        isrunning = False
+            else:
+                perfidleframetimes.append((now - perf_frame_start) * 1000.0)
+                for sectionname, sectionms in perf_sections_frame.items():
+                    perfsectiontotals[sectionname] = perfsectiontotals.get(sectionname, 0.0) + sectionms
+                if len(perfidleframetimes) >= perfidleframes:
+                    ordered = sorted(perfidleframetimes)
+                    avg = sum(perfidleframetimes) / len(perfidleframetimes)
+                    p95 = ordered[int(len(ordered) * 0.95) - 1]
+                    print(
+                        "EBEE_PERF_IDLE "
+                        f"turn={currentturnnumber} frames={len(perfidleframetimes)} "
+                        f"avg_ms={avg:.3f} p95_ms={p95:.3f} "
+                        f"fps_est={1000.0 / max(0.001, avg):.1f} "
+                        f"orders={len(movementorderlist)}",
+                        flush=True,
+                    )
+                    for sectionname, totalms in sorted(perfsectiontotals.items(), key=lambda item: item[1], reverse=True):
+                        print(f"EBEE_PERF_SECTION {sectionname} avg_ms={totalms / len(perfidleframetimes):.3f}", flush=True)
+                    isrunning = False
 
 
 
@@ -3081,6 +3866,12 @@ def main(eventbus=None, is_fullscreen=False):
                 continue
 
             if uiaction == InGameUI.actionpausemenu:
+                continue
+
+            if uiaction == "warprogress":
+                continue
+
+            if uiaction == "notification_scroll":
                 continue
 
             if runtimeui.pausemenuopen:
@@ -3120,6 +3911,8 @@ def main(eventbus=None, is_fullscreen=False):
                             "country": playercountry,
                         },
                     )
+                    camerashakeamount = max(camerashakeamount, 1.15)
+                    emitmappulse(mouseposition, (212, 169, 77), radius=220, duration=1.0, width=3)
                 continue
 
             if uiaction == "declarewar" and gamephase == "play":
@@ -3139,6 +3932,8 @@ def main(eventbus=None, is_fullscreen=False):
                                 "turn": currentturnnumber,
                             },
                         )
+                        camerashakeamount = max(camerashakeamount, 1.75)
+                        emitmappulse((maprect.width * 0.5, maprect.height * 0.5), (224, 93, 93), radius=260, duration=1.05, width=4)
                 runtimeui.select_map_country(None)
                 countrymenutarget = None
                 continue
@@ -3177,6 +3972,9 @@ def main(eventbus=None, is_fullscreen=False):
                                     "turn": currentturnnumber,
                                 },
                             )
+                            recruitrect = getscreenrectangle(selectedprovince["rectangle"], zoomvalue, camerax, cameray)
+                            emitmappulse(recruitrect.center, (67, 181, 129), radius=120, duration=0.75, width=3)
+                            camerashakeamount = max(camerashakeamount, 0.75)
                 continue
 
             if uiaction == InGameUI.actiontogglefocuspanel and gamephase == "play":
@@ -3263,6 +4061,7 @@ def main(eventbus=None, is_fullscreen=False):
                     movementorderlist,
                     currentturnnumber,
                 )
+                checkcapitulations()
                 playerstability, _ = applycapitalstabilitypenalties(
                     provincemap,
                     playercountry,
@@ -3285,11 +4084,9 @@ def main(eventbus=None, is_fullscreen=False):
                 if currentturnnumber in COVID_NEWS_EVENTS:
                     news = COVID_NEWS_EVENTS[currentturnnumber]
 
-                    newssystem.pushnews(
-                        title=news["title"],
-                        description=news["description"],
-                        imagekey="placeholder",
-                        priority=3,
+                    pushnotification(
+                        news["title"],
+                        news["description"],
                     )
                 
                 if currentturnnumber == 2 and playercountry.lower() == "malaysia":
@@ -3309,6 +4106,8 @@ def main(eventbus=None, is_fullscreen=False):
                         "playerAP": playerap,
                     },
                 )
+                emitmappulse((maprect.width * 0.5, maprect.height * 0.5), (67, 181, 129), radius=240, duration=0.92, width=3)
+                camerashakeamount = max(camerashakeamount, 1.0)
                 continue
 
             if uiaction == "split" and gamephase == "play":
@@ -3323,6 +4122,7 @@ def main(eventbus=None, is_fullscreen=False):
                     selectedprovinceidset = set(splitresult["selectedprovinceids"])
                     selectedprovinceid = splitresult["primaryprovinceid"]
                     routepreviewset = set()
+                    emitmappulse(mouseposition, (74, 143, 231), radius=110, duration=0.65, width=2)
                 continue
 
             if uiaction == "merge" and gamephase == "play":
@@ -3337,6 +4137,7 @@ def main(eventbus=None, is_fullscreen=False):
                     selectedprovinceidset = set(mergeresult["selectedprovinceids"])
                     selectedprovinceid = mergeresult["primaryprovinceid"]
                     routepreviewset = set()
+                    emitmappulse(mouseposition, (212, 169, 77), radius=120, duration=0.7, width=2)
                 continue
 
             if uiaction == "frontline" and gamephase == "play":
@@ -3344,6 +4145,7 @@ def main(eventbus=None, is_fullscreen=False):
                 frontlineplacementmode = bool(hastroopsselected) and not frontlineplacementmode
                 routepreviewset = set()
                 countrymenutarget = None
+                emitmappulse(mouseposition, (235, 205, 92), radius=140, duration=0.75, width=2)
                 continue
 
             if (
@@ -3359,6 +4161,7 @@ def main(eventbus=None, is_fullscreen=False):
                         routepreviewset = refreshfrontlines(allowautoadvance=True)
                     else:
                         routepreviewset = set()
+                    emitmappulse(mouseposition, (224, 93, 93), radius=130, duration=0.7, width=2)
                 continue
 
             if (
@@ -3370,6 +4173,7 @@ def main(eventbus=None, is_fullscreen=False):
                 if detachregimentfromdivision(uiaction[1]):
                     routepreviewset = set()
                     frontlineplacementmode = False
+                    emitmappulse(mouseposition, (224, 93, 93), radius=90, duration=0.55, width=2)
                 continue
 
             if event.type == pygame.QUIT:
@@ -3392,10 +4196,6 @@ def main(eventbus=None, is_fullscreen=False):
    
    
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if newssystem.current and newspopup.handleclick(event.pos):
-                    newssystem.closecurrent()
-                    continue
-
                 if devconsole.handleleftclick(event.pos):
                     continue
 
@@ -3420,6 +4220,7 @@ def main(eventbus=None, is_fullscreen=False):
                                     "stateId": selectedstateobject["id"],
                                 },
                             )
+                            emitmappulse(eventmappos, (212, 169, 77), radius=150, duration=0.72, width=2)
 
                     continue
 
@@ -3466,6 +4267,8 @@ def main(eventbus=None, is_fullscreen=False):
                             routepreviewset = deploymentresult["routepreviewset"]
                             countrymenutarget = None
                             frontlineplacementmode = False
+                            emitmappulse(eventmappos, (224, 93, 93), radius=180, duration=0.9, width=3)
+                            camerashakeamount = max(camerashakeamount, 1.05)
                         continue
                     
                     #fix click handlin
@@ -3502,6 +4305,7 @@ def main(eventbus=None, is_fullscreen=False):
                                     "country": getprovincecontroller(selectedprovince),
                                 },
                             )
+                            emitmappulse(eventmappos, (212, 169, 77), radius=140, duration=0.72, width=2)
                         continue
                     dragselectstart = eventmappos
                     dragselectcurrent = eventmappos
@@ -3542,6 +4346,7 @@ def main(eventbus=None, is_fullscreen=False):
                                     "country": getprovincecontroller(selectedprovince),
                                 },
                             )
+                            emitmappulse(selectionrect.center, (74, 143, 231), radius=max(90, max(selectionrect.width, selectionrect.height)), duration=0.72, width=2)
                     else:
                         selectedprovinceid = None
                         selectedprovinceidset = set()
@@ -3571,6 +4376,7 @@ def main(eventbus=None, is_fullscreen=False):
                                 "country": getprovincecontroller(selectedprovince),
                             },
                         )
+                        emitmappulse(eventmappos, (212, 169, 77), radius=105, duration=0.62, width=2)
                         dragselectstart = None
                         dragselectcurrent = None
                         continue
@@ -3592,6 +4398,7 @@ def main(eventbus=None, is_fullscreen=False):
                                 "country": getprovincecontroller(selectedprovince),
                             },
                         )
+                        emitmappulse(eventmappos, (212, 169, 77), radius=105, duration=0.62, width=2)
                         dragselectstart = None
                         dragselectcurrent = None
                         continue
@@ -3623,6 +4430,7 @@ def main(eventbus=None, is_fullscreen=False):
                                 "country": getprovincecontroller(hoveredstateprovince),
                             },
                         )
+                        emitmappulse(eventmappos, (212, 169, 77), radius=110, duration=0.62, width=2)
 
                     eventbus.emit(
                         EngineEventType.STATESELECTED,
@@ -3657,6 +4465,7 @@ def main(eventbus=None, is_fullscreen=False):
                         if destinationcountry:
                             runtimeui.select_map_country(destinationcountry)
                             countrymenutarget = None
+                            emitmappulse(eventmappos, (74, 143, 231), radius=120, duration=0.65, width=2)
                             continue
 
                 if hoveredstateid is None and hoveredprovinceid is None:
@@ -3672,6 +4481,7 @@ def main(eventbus=None, is_fullscreen=False):
                             if playercountry and destinationcountry and destinationcountry != playercountry:
                                 countrymenutarget = destinationcountry
                                 routepreviewset = set()
+                                emitmappulse(eventmappos, (212, 169, 77), radius=140, duration=0.7, width=2)
                                 continue
                     countrymenutarget = None
                     continue
@@ -3685,6 +4495,7 @@ def main(eventbus=None, is_fullscreen=False):
                     if destinationcountry not in countriesatwarset:
                         countrymenutarget = destinationcountry
                         routepreviewset = set() # set() is an empty set to clear route preview
+                        emitmappulse(eventmappos, (212, 169, 77), radius=140, duration=0.7, width=2)
                         continue
 
                 countrymenutarget = None
@@ -3796,6 +4607,8 @@ def main(eventbus=None, is_fullscreen=False):
                             "turn": currentturnnumber,
                         },
                     )
+                    emitmappulse(eventmappos, (124, 196, 255), radius=135, duration=0.78, width=3)
+                    camerashakeamount = max(camerashakeamount, 0.55)
 
 
             elif event.type == pygame.MOUSEWHEEL:
@@ -3812,6 +4625,8 @@ def main(eventbus=None, is_fullscreen=False):
             elif event.type == pygame.KEYDOWN:
                 # Space = next turn (only in play phase, and not while dev console is capturing input)
                 if event.key == pygame.K_SPACE and gamephase == "play" and not devconsole.visible:
+                    perfturnstart = time.perf_counter() if perfmonitoractive and currentturnnumber >= perfwarturn else None
+                    perfturnfrom = currentturnnumber
                     frontlineupdates = refreshfrontlines(allowautoadvance=True)
                     processmovementorders(
                         movementorderlist,
@@ -3856,6 +4671,7 @@ def main(eventbus=None, is_fullscreen=False):
                         movementorderlist,
                         currentturnnumber,
                     )
+                    checkcapitulations()
                     playerstability, _ = applycapitalstabilitypenalties(
                         provincemap,
                         playercountry,
@@ -3888,6 +4704,16 @@ def main(eventbus=None, is_fullscreen=False):
                             "playerAP": playerap,
                         },
                     )
+                    emitmappulse((maprect.width * 0.5, maprect.height * 0.5), (67, 181, 129), radius=240, duration=0.92, width=3)
+                    camerashakeamount = max(camerashakeamount, 1.0)
+                    if perfturnstart is not None:
+                        print(
+                            "EBEE_PERF_TURN_ADVANCE "
+                            f"from={perfturnfrom} to={currentturnnumber} "
+                            f"ms={(time.perf_counter() - perfturnstart) * 1000.0:.3f} "
+                            f"orders={len(movementorderlist)} active_wars={len(warpairset)}",
+                            flush=True,
+                        )
                     continue
 
 
@@ -3955,9 +4781,24 @@ def main(eventbus=None, is_fullscreen=False):
 
 
 
+        if gamephase == "choosecountry" and choosecountry_intro_progress < 1.0:
+            intro = ease_out_cubic(choosecountry_intro_progress)
+            overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, int(238 * (1.0 - intro))))
+            screen.blit(overlay, (0, 0))
+            radius = int(80 + intro * max(screen.get_size()) * 0.45)
+            pulse_surface = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+            pygame.draw.circle(
+                pulse_surface,
+                (212, 169, 77, int(96 * (1.0 - intro))),
+                (screen.get_width() // 2, screen.get_height() // 2),
+                radius,
+                2,
+            )
+            screen.blit(pulse_surface, (0, 0))
+
         pygame.display.flip()
 
-    newssystem.stop()
     pygame.quit()
 # loading screen and main loop ends
 

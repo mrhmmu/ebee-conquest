@@ -2,6 +2,7 @@ import pygame
 import os
 import pygame_gui
 import math
+from game.animation.motion import draw_soft_glow, pulse
 
 troopbadgevisiblezoommultiplier = 2.5
 countrylabelvisiblezoommultiplier = 6
@@ -9,6 +10,7 @@ troopbadgeoverlapmergethreshold = 0.5
 FLAG_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "flags"))
 troopbadgelayoutcache = {}
 troopbadgeassetcache = {}
+troopbadgevisualsurfacecache = {}
 hoverlabelcache = {}
 
 #FOR ANY GUI PLEASE PUT IT IN HERE
@@ -105,18 +107,18 @@ def gui_gettroopbadgevisualrect(centerposition, troopcount, fontobject, flags=No
     if not centerposition:
         return pygame.Rect(0, 0, 0, 0)
 
-    labelsurface = fontobject.render(str(troopcount), True, (255, 255, 255))
+    labelwidth, labelheight = fontobject.size(str(troopcount))
     flagkey = gui_getcountryflagkey(country_name)
     flagimage = flags.get(flagkey) if flags and flagkey else None
     padding = 6
     spacing = 4
-    width = labelsurface.get_width() + padding * 2 + 8
+    width = labelwidth + padding * 2 + 8
     if entrenched:
         width += 14 + spacing
     if flagimage:
         width += flagimage.get_width() + spacing
     width = max(58, width)
-    height = max(28, max(labelsurface.get_height(), flagimage.get_height() if flagimage else 0) + padding * 2 + 2)
+    height = max(28, max(labelheight, flagimage.get_height() if flagimage else 0) + padding * 2 + 2)
     labelrectangle = pygame.Rect(0, 0, width, height)
     labelrectangle.center = (int(centerposition[0]), int(centerposition[1]))
     return labelrectangle
@@ -127,6 +129,140 @@ def gui_gettroopbadgerowvisuals(fontobject, flags, country_name, troopcount, tex
     flagimage = flags.get(flagkey) if flags and flagkey else None
     textsurface = fontobject.render(str(troopcount), True, text_color)
     return flagimage, textsurface
+
+
+def gui_gettroopbadgesurface(
+    fontobject,
+    troopcount,
+    flags=None,
+    country_name=None,
+    backgroundcolor=(0, 0, 0),
+    bordercolor=(165, 165, 165),
+    rows=None,
+    entrenched=False,
+):
+    text_color = (234, 238, 242)
+    panel_color = (10, 14, 20)
+    inner_color = (18, 25, 36)
+    accent_color = tuple(bordercolor or (212, 169, 77))
+    backgroundcolor = tuple(backgroundcolor or (0, 0, 0))
+    rowskey = None
+    if rows:
+        rowskey = tuple(
+            (
+                gui_getcountryflagkey(row.get("country")),
+                int(row.get("troops", 0)),
+                int(row.get("entrenchedtroops", 0)),
+            )
+            for row in rows
+        )
+    cachekey = (
+        id(fontobject),
+        str(troopcount),
+        gui_getcountryflagkey(country_name),
+        backgroundcolor,
+        accent_color,
+        rowskey,
+        bool(entrenched),
+    )
+    cachedsurface = troopbadgevisualsurfacecache.get(cachekey)
+    if cachedsurface is not None:
+        return cachedsurface
+
+    padding = 7
+    spacing = 6
+    rowspacing = 3
+
+    if rows:
+        rowvisuals = []
+        contentwidth = 0
+        rowheights = []
+        for row in rows:
+            flag_img, text_surf = gui_gettroopbadgerowvisuals(
+                fontobject,
+                flags or {},
+                row.get("country"),
+                row.get("troops", 0),
+                text_color,
+            )
+            entrenchment_surf = fontobject.render("E", True, (14, 86, 38)) if int(row.get("entrenchedtroops", 0)) > 0 else None
+            rowwidth = text_surf.get_width()
+            if entrenchment_surf:
+                rowwidth += entrenchment_surf.get_width() + spacing
+            if flag_img:
+                rowwidth += flag_img.get_width() + spacing
+            rowheight = max(
+                text_surf.get_height(),
+                flag_img.get_height() if flag_img else 0,
+                entrenchment_surf.get_height() if entrenchment_surf else 0,
+            )
+            rowvisuals.append((entrenchment_surf, flag_img, text_surf, rowheight))
+            contentwidth = max(contentwidth, rowwidth)
+            rowheights.append(rowheight)
+
+        width = max(58, contentwidth + padding * 2 + 6)
+        height = sum(rowheights) + rowspacing * max(0, len(rowheights) - 1) + padding * 2
+        renderedsurface = pygame.Surface((width + 8, height + 8), pygame.SRCALPHA)
+        rect = pygame.Rect(4, 2, width, height)
+        pygame.draw.rect(renderedsurface, (0, 0, 0, 120), renderedsurface.get_rect(), border_radius=6)
+        pygame.draw.rect(renderedsurface, panel_color, rect, border_radius=5)
+        pygame.draw.rect(renderedsurface, accent_color, rect, 1, border_radius=5)
+        pygame.draw.rect(renderedsurface, accent_color, pygame.Rect(rect.x, rect.y, 4, rect.height), border_radius=2)
+
+        draw_y = rect.y + padding
+        for entrenchment_surf, flag_img, text_surf, rowheight in rowvisuals:
+            draw_x = rect.x + padding + 4
+            center_y = draw_y + rowheight // 2
+            if entrenchment_surf:
+                renderedsurface.blit(entrenchment_surf, (draw_x, center_y - entrenchment_surf.get_height() // 2))
+                draw_x += entrenchment_surf.get_width() + spacing
+            if flag_img:
+                renderedsurface.blit(flag_img, (draw_x, center_y - flag_img.get_height() // 2))
+                draw_x += flag_img.get_width() + spacing
+            renderedsurface.blit(text_surf, (draw_x, center_y - text_surf.get_height() // 2))
+            draw_y += rowheight + rowspacing
+    else:
+        country_key = gui_getcountryflagkey(country_name)
+        text_surf = fontobject.render(str(troopcount), True, text_color)
+        flag_img = flags.get(country_key) if flags and country_key else None
+        entrenchment_surf = fontobject.render("E", True, (14, 86, 38)) if bool(entrenched) else None
+
+        content_width = text_surf.get_width()
+        if flag_img:
+            content_width += flag_img.get_width() + spacing
+        if entrenchment_surf:
+            content_width += entrenchment_surf.get_width() + spacing
+
+        width = max(58, content_width + padding * 2 + 8)
+        height = max(
+            text_surf.get_height(),
+            flag_img.get_height() if flag_img else 0,
+            entrenchment_surf.get_height() if entrenchment_surf else 0,
+        ) + padding * 2 + 2
+        renderedsurface = pygame.Surface((width + 8, height + 8), pygame.SRCALPHA)
+        rect = pygame.Rect(4, 2, width, height)
+        pygame.draw.rect(renderedsurface, (0, 0, 0, 135), renderedsurface.get_rect(), border_radius=7)
+        pygame.draw.rect(renderedsurface, panel_color, rect, border_radius=5)
+        inner_rect = rect.inflate(-4, -4)
+        pygame.draw.rect(renderedsurface, inner_color, inner_rect, border_radius=4)
+        pygame.draw.rect(renderedsurface, accent_color, rect, 1, border_radius=5)
+        pygame.draw.rect(renderedsurface, accent_color, pygame.Rect(rect.x, rect.y, 4, rect.height), border_radius=2)
+
+        draw_x = rect.x + padding + 4
+        center_y = rect.y + rect.height // 2
+        if flag_img:
+            renderedsurface.blit(flag_img, (draw_x, center_y - flag_img.get_height() // 2))
+            draw_x += flag_img.get_width() + spacing
+        renderedsurface.blit(text_surf, (draw_x, center_y - text_surf.get_height() // 2))
+        draw_x += text_surf.get_width()
+        if entrenchment_surf:
+            draw_x += spacing
+            renderedsurface.blit(entrenchment_surf, (draw_x, center_y - entrenchment_surf.get_height() // 2))
+
+    if len(troopbadgevisualsurfacecache) > 256:
+        troopbadgevisualsurfacecache.clear()
+    troopbadgevisualsurfacecache[cachekey] = renderedsurface
+    return renderedsurface
 
 
 def gui_getoverlapratio(firstrect, secondrect):
@@ -1135,116 +1271,31 @@ def gui_drawtroopcountbadge(
         return
 
     x, y = centerposition
-    text_color = (234, 238, 242)
-    muted_text_color = (185, 192, 201)
-    panel_color = (10, 14, 20)
-    inner_color = (18, 25, 36)
-    accent_color = bordercolor or (212, 169, 77)
-    padding = 7
-    spacing = 6
-    rowspacing = 3
-
-    if rows:
-        rowvisuals = []
-        contentwidth = 0
-        rowheights = []
-        for row in rows:
-            flag_img, text_surf = gui_gettroopbadgerowvisuals(
-                fontobject,
-                flags or {},
-                row.get("country"),
-                row.get("troops", 0),
-                text_color,
-            )
-            entrenchment_surf = fontobject.render("E", True, (14, 86, 38)) if int(row.get("entrenchedtroops", 0)) > 0 else None
-            rowwidth = text_surf.get_width()
-            if entrenchment_surf:
-                rowwidth += entrenchment_surf.get_width() + spacing
-            if flag_img:
-                rowwidth += flag_img.get_width() + spacing
-            rowheight = max(
-                text_surf.get_height(),
-                flag_img.get_height() if flag_img else 0,
-                entrenchment_surf.get_height() if entrenchment_surf else 0,
-            )
-            rowvisuals.append((entrenchment_surf, flag_img, text_surf, rowwidth, rowheight))
-            contentwidth = max(contentwidth, rowwidth)
-            rowheights.append(rowheight)
-
-        width = max(58, contentwidth + padding * 2 + 6)
-        height = sum(rowheights) + rowspacing * max(0, len(rowheights) - 1) + padding * 2
-        rect = pygame.Rect(x - width // 2, y - height // 2, width, height)
-        shadow = pygame.Surface((rect.width + 8, rect.height + 8), pygame.SRCALPHA)
-        pygame.draw.rect(shadow, (0, 0, 0, 120), shadow.get_rect(), border_radius=6)
-        screen.blit(shadow, (rect.x - 4, rect.y - 2))
-        pygame.draw.rect(screen, panel_color, rect, border_radius=5)
-        pygame.draw.rect(screen, accent_color, rect, 1, border_radius=5)
-        pygame.draw.rect(screen, accent_color, pygame.Rect(rect.x, rect.y, 4, rect.height), border_radius=2)
-
-        draw_y = rect.y + padding
-        for entrenchment_surf, flag_img, text_surf, rowwidth, rowheight in rowvisuals:
-            draw_x = rect.x + padding + 4
-            center_y = draw_y + rowheight // 2
-            if entrenchment_surf:
-                screen.blit(entrenchment_surf, (draw_x, center_y - entrenchment_surf.get_height() // 2))
-                draw_x += entrenchment_surf.get_width() + spacing
-            if flag_img:
-                screen.blit(flag_img, (draw_x, center_y - flag_img.get_height() // 2))
-                draw_x += flag_img.get_width() + spacing
-            screen.blit(text_surf, (draw_x, center_y - text_surf.get_height() // 2))
-            draw_y += rowheight + rowspacing
-        return
-
-    country_key = gui_getcountryflagkey(country_name)
-    text_surf = fontobject.render(str(troopcount), True, text_color)
-    flag_img = flags.get(country_key) if flags and country_key else None
-    entrenchment_surf = fontobject.render("E", True, (14, 86, 38)) if bool(entrenched) else None
-
-    content_width = text_surf.get_width()
-    if flag_img:
-        content_width += flag_img.get_width() + spacing
-    if entrenchment_surf:
-        content_width += entrenchment_surf.get_width() + spacing
-
-    width = max(58, content_width + padding * 2 + 8)
-    height = max(
-        text_surf.get_height(),
-        flag_img.get_height() if flag_img else 0,
-        entrenchment_surf.get_height() if entrenchment_surf else 0,
-    ) + padding * 2 + 2
-
-    rect = pygame.Rect(
-        x - width // 2,
-        y - height // 2,
-        width,
-        height
+    now = pygame.time.get_ticks() / 1000.0
+    badgepulse = 0.18 + 0.22 * pulse(now, 3.0, float(x) * 0.017 + float(y) * 0.011)
+    if tuple(bordercolor[:3]) in {(224, 93, 93), (212, 169, 77)}:
+        badgepulse += 0.35 * pulse(now, 5.2)
+    badgesurface = gui_gettroopbadgesurface(
+        fontobject,
+        troopcount,
+        flags=flags,
+        country_name=country_name,
+        backgroundcolor=backgroundcolor,
+        bordercolor=bordercolor,
+        rows=rows,
+        entrenched=entrenched,
     )
-
-    shadow = pygame.Surface((rect.width + 8, rect.height + 8), pygame.SRCALPHA)
-    pygame.draw.rect(shadow, (0, 0, 0, 135), shadow.get_rect(), border_radius=7)
-    screen.blit(shadow, (rect.x - 4, rect.y - 2))
-    pygame.draw.rect(screen, panel_color, rect, border_radius=5)
-    inner_rect = rect.inflate(-4, -4)
-    pygame.draw.rect(screen, inner_color, inner_rect, border_radius=4)
-    pygame.draw.rect(screen, accent_color, rect, 1, border_radius=5)
-    pygame.draw.rect(screen, accent_color, pygame.Rect(rect.x, rect.y, 4, rect.height), border_radius=2)
-
-    draw_x = rect.x + padding + 4
-    center_y = rect.y + rect.height // 2
-
-    if flag_img:
-        flag_y = center_y - flag_img.get_height() // 2
-        screen.blit(flag_img, (draw_x, flag_y))
-        draw_x += flag_img.get_width() + spacing
-
-    text_y = center_y - text_surf.get_height() // 2
-    screen.blit(text_surf, (draw_x, text_y))
-    draw_x += text_surf.get_width()
-
-    if entrenchment_surf:
-        draw_x += spacing
-        entrenchment_y = center_y - entrenchment_surf.get_height() // 2
-        screen.blit(entrenchment_surf, (draw_x, entrenchment_y))
+    visualrect = pygame.Rect(
+        int(x - ((badgesurface.get_width() - 8) * 0.5) - 4),
+        int(y - ((badgesurface.get_height() - 8) * 0.5) - 2),
+        badgesurface.get_width(),
+        badgesurface.get_height(),
+    )
+    draw_soft_glow(screen, visualrect.inflate(-8, -4), bordercolor, badgepulse, radius=7, rings=3)
+    screen.blit(
+        badgesurface,
+        visualrect.topleft,
+    )
 
 def gui_drawhoverlabel(screen, fontobject, state, mouseposition):
     if not state:
@@ -1340,6 +1391,7 @@ def gui_drawcountrylabels(
     # O(k*s) -> O(s + k*c)
     # build country anchors once per frame and reuse across wrapped copies
     countryanchorlookup = gui_buildcountrylabelanchors(stateshapelist, gamephase)
+    now = pygame.time.get_ticks() / 1000.0
 
     for copyshift in copyshiftlist:
         drawcamerax = camerax + copyshift
@@ -1378,6 +1430,7 @@ def gui_drawcountrylabels(
             )
             if labelrectangle.width > countrybox.width * 1.55 or labelrectangle.height > countrybox.height * 1.25:
                 continue
+            labelsurface.set_alpha(int(146 + 46 * pulse(now, 1.15, centerx * 0.01)))
             screen.blit(labelsurface, labelrectangle)
 
 

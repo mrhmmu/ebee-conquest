@@ -1,6 +1,15 @@
 import os
 
 import pygame
+from game.animation.motion import (
+    AmbientParticleField,
+    draw_light_sweep,
+    draw_scanlines,
+    draw_soft_glow,
+    mix_color,
+    pulse,
+    scale_rect,
+)
 
 
 class FocusTreeView:
@@ -30,6 +39,7 @@ class FocusTreeView:
         self.layoutready = False
         self.datakey = None
         self.viewsize = None
+        self._particles = AmbientParticleField(70, seed=505)
 
     def setdata(self, data):
         self.data = data or {"name": "National Policy", "focuses": []} # check for key
@@ -205,6 +215,9 @@ class FocusTreeView:
             self.viewsize = viewrect.size
             self.layoutready = False
         pygame.draw.rect(surface, (0, 0, 0), viewrect)
+        now = pygame.time.get_ticks() / 1000.0
+        self._particles.draw(surface, viewrect, now, color=(128, 162, 204))
+        draw_scanlines(surface, viewrect, now, color=(238, 220, 165), alpha=7, spacing=34)
 
 
         self.closerect = pygame.Rect(viewrect.right - 150, 20, 118, 34)
@@ -327,8 +340,10 @@ class FocusTreeView:
                 bend = (start[0], start[1] + (end[1] - start[1]) // 2)
                 bendtwo = (end[0], bend[1])
                 linew = max(1, int(3 * self.zoom))
-                pygame.draw.lines(surface, (72, 80, 91), False, (start, bend, bendtwo, end), linew + 1)
-                pygame.draw.lines(surface, (112, 124, 140), False, (start, bend, bendtwo, end), max(1, linew - 1))
+                now = pygame.time.get_ticks() / 1000.0
+                live = mix_color((112, 124, 140), (238, 220, 165), 0.24 * pulse(now, 2.1, end[0] * 0.01))
+                pygame.draw.lines(surface, (40, 44, 55), False, (start, bend, bendtwo, end), linew + 2)
+                pygame.draw.lines(surface, live, False, (start, bend, bendtwo, end), max(1, linew - 1))
 
 
 
@@ -337,19 +352,24 @@ class FocusTreeView:
     def drawnode(self, surface, focus, rect, font, mouse):
         status = str(focus.get("status", "locked"))
         fill, border = self.statuscolors(status)
-        if rect.collidepoint(mouse):
+        now = pygame.time.get_ticks() / 1000.0
+        hovered = rect.collidepoint(mouse)
+        hover_amount = 1.0 if hovered else 0.0
+        if hovered:
             fill = tuple(min(255, value + 16) for value in fill)
+        drawrect = scale_rect(rect, 1.0 + hover_amount * 0.035 + (0.012 * pulse(now, 1.7) if status == "active" else 0.0))
+        draw_soft_glow(surface, drawrect, border, hover_amount * 0.7 + (0.42 * pulse(now, 3.0) if status == "active" else 0.0), radius=8, rings=4)
 
 
         # draw the node background and border
-        pygame.draw.rect(surface, fill, rect, border_radius=4)
+        pygame.draw.rect(surface, fill, drawrect, border_radius=5)
         icon = self.loadimage(focus.get("icon"))
         if icon:
-            self.drawcroppedimage(surface, icon, rect)
+            self.drawcroppedimage(surface, icon, drawrect)
         else:
-            pygame.draw.rect(surface, (30, 34, 40), rect.inflate(-8, -8), border_radius=3)
+            pygame.draw.rect(surface, (30, 34, 40), drawrect.inflate(-8, -8), border_radius=3)
 
-        tint = pygame.Surface(rect.size, pygame.SRCALPHA)
+        tint = pygame.Surface(drawrect.size, pygame.SRCALPHA)
         if status in ("locked", "blocked", "waiting"):
             tint.fill((0, 0, 0, 78))
         elif status == "completed":
@@ -358,19 +378,20 @@ class FocusTreeView:
             tint.fill((33, 81, 145, 42))
         elif status == "available":
             tint.fill((118, 86, 24, 30))
-        surface.blit(tint, rect.topleft)
+        surface.blit(tint, drawrect.topleft)
 
         titlebandheight = max(28, int(36 * self.zoom))
-        titleband = pygame.Surface((rect.width, titlebandheight), pygame.SRCALPHA)
+        titleband = pygame.Surface((drawrect.width, titlebandheight), pygame.SRCALPHA)
         titleband.fill((0, 0, 0, 150))
-        pygame.draw.line(titleband, (*border, 185), (0, 0), (rect.width, 0), 1)
-        surface.blit(titleband, (rect.x, rect.bottom - titlebandheight))
-        pygame.draw.rect(surface, border, rect, 2, border_radius=4)
-        pygame.draw.rect(surface, border, pygame.Rect(rect.x, rect.y, rect.width, max(4, int(6 * self.zoom))), border_radius=3)
+        pygame.draw.line(titleband, (*border, 185), (0, 0), (drawrect.width, 0), 1)
+        surface.blit(titleband, (drawrect.x, drawrect.bottom - titlebandheight))
+        pygame.draw.rect(surface, border, drawrect, 2, border_radius=5)
+        pygame.draw.rect(surface, border, pygame.Rect(drawrect.x, drawrect.y, drawrect.width, max(4, int(6 * self.zoom))), border_radius=3)
+        draw_light_sweep(surface, drawrect, now, border, alpha=18 if hovered else 9)
 
         # draw the title if zoomed in enough
         if self.zoom >= 0.55:
-            titlerect = pygame.Rect(rect.x + 8, rect.bottom - titlebandheight + 4, rect.width - 16, titlebandheight - 8)
+            titlerect = pygame.Rect(drawrect.x + 8, drawrect.bottom - titlebandheight + 4, drawrect.width - 16, titlebandheight - 8)
             self.fittext(surface, str(focus.get("title") or focus.get("id")), font, (244, 244, 244), titlerect)
 
 
@@ -386,6 +407,7 @@ class FocusTreeView:
 
 
         # draw the panel background and border
+        draw_soft_glow(surface, self.detailrect, (238, 220, 165), 0.24, radius=8, rings=4)
         pygame.draw.rect(surface, (20, 24, 31), self.detailrect, border_radius=4)
         pygame.draw.rect(surface, (96, 104, 116), self.detailrect, 2, border_radius=4)
 
@@ -453,13 +475,20 @@ class FocusTreeView:
         return y
 
     def drawbutton(self, surface, rect, enabled, label, font):
+        now = pygame.time.get_ticks() / 1000.0
+        hovered = rect.collidepoint(pygame.mouse.get_pos()) and enabled
+        drawrect = scale_rect(rect, 1.0 + (0.035 if hovered else 0.0))
         fill = (62, 126, 82) if enabled else (64, 64, 68)
+        if hovered:
+            fill = mix_color(fill, (92, 176, 116), 0.55)
         border = (154, 210, 165) if enabled else (118, 118, 122)
         textcolor = (245, 245, 245) if enabled else (170, 170, 174)
-        pygame.draw.rect(surface, fill, rect, border_radius=3)
-        pygame.draw.rect(surface, border, rect, 1, border_radius=3)
+        draw_soft_glow(surface, drawrect, border, 0.65 if hovered else 0.0, radius=5, rings=3)
+        pygame.draw.rect(surface, fill, drawrect, border_radius=4)
+        pygame.draw.rect(surface, border, drawrect, 1, border_radius=4)
+        draw_light_sweep(surface, drawrect, now, border, alpha=18 if hovered else 7)
         text = font.render(label, True, textcolor)
-        surface.blit(text, text.get_rect(center=rect.center))
+        surface.blit(text, text.get_rect(center=drawrect.center))
 
     def fittext(self, surface, text, font, color, rect):
         original = str(text)

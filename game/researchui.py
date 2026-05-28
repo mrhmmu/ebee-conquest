@@ -2,6 +2,15 @@ from __future__ import annotations
 import json
 import os
 import pygame
+from game.animation.motion import (
+    AmbientParticleField,
+    draw_light_sweep,
+    draw_scanlines,
+    draw_soft_glow,
+    mix_color,
+    pulse,
+    scale_rect,
+)
 
 
 _NODE_W      = 164
@@ -127,6 +136,7 @@ class ResearchTreeView:
         self.dragbutton = None
         self.dragstart = (0, 0)
         self.panstart = (0.0, 0.0)
+        self._particles = AmbientParticleField(68, seed=707)
 
     def reload_data(self) -> None:
         self._categories = load_research_data()
@@ -278,17 +288,23 @@ class ResearchTreeView:
 
         viewrect = surface.get_rect()
 
+        now = pygame.time.get_ticks() / 1000.0
         pygame.draw.rect(surface, (0, 0, 0), viewrect)
+        self._particles.draw(surface, viewrect, now, color=(104, 154, 226))
+        draw_scanlines(surface, viewrect, now, color=(80, 130, 220), alpha=7, spacing=32)
 
         title_surf = title_font.render("RESEARCH", True, _C_TITLE)
         surface.blit(title_surf, (_PAD, (_TOP_H - title_surf.get_height()) // 2))
 
         self._close_rect = pygame.Rect(sw - 130, 8, 118, 34)
         close_hover = self._close_rect.collidepoint(mouse)
-        pygame.draw.rect(surface, _C_CLOSE_HOVER if close_hover else _C_CLOSE_BG, self._close_rect, border_radius=3)
-        pygame.draw.rect(surface, _C_CLOSE_BD, self._close_rect, 1, border_radius=3)
+        close_draw_rect = scale_rect(self._close_rect, 1.0 + (0.035 if close_hover else 0.0))
+        draw_soft_glow(surface, close_draw_rect, _C_CLOSE_BD, 0.55 if close_hover else 0.0, radius=5, rings=3)
+        pygame.draw.rect(surface, _C_CLOSE_HOVER if close_hover else _C_CLOSE_BG, close_draw_rect, border_radius=4)
+        pygame.draw.rect(surface, _C_CLOSE_BD, close_draw_rect, 1, border_radius=4)
+        draw_light_sweep(surface, close_draw_rect, now, _C_CLOSE_BD, alpha=18 if close_hover else 7)
         cx_surf = font.render("Close", True, (230, 100, 100))
-        surface.blit(cx_surf, cx_surf.get_rect(center=self._close_rect.center))
+        surface.blit(cx_surf, cx_surf.get_rect(center=close_draw_rect.center))
 
         hint_surf = font.render(
             f"click a node to research  •  scroll to zoom  •  drag to pan  •  {RESEARCH_RP_PER_TURN} RP per turn",
@@ -354,20 +370,33 @@ class ResearchTreeView:
             else:
                 bg, border_c, label_c = _C_NODE_LOCKED, _C_NODE_LOCKED_BD, _C_NODE_LOCKED_LB
 
-            pygame.draw.rect(surface, bg, rect, border_radius=4)
+            node_draw_rect = scale_rect(
+                rect,
+                1.0 + (0.035 if hovered else 0.0) + (0.014 * pulse(now, 2.4) if status == "researching" else 0.0),
+            )
             bd_color = _C_NODE_SEL_BD if selected else border_c
             bd_w = 2 if selected else 1
-            pygame.draw.rect(surface, bd_color, rect, bd_w, border_radius=4)
+            draw_soft_glow(
+                surface,
+                node_draw_rect,
+                bd_color,
+                (0.64 if hovered else 0.0) + (0.42 * pulse(now, 3.4) if status == "researching" else 0.0),
+                radius=7,
+                rings=4,
+            )
+            pygame.draw.rect(surface, bg, node_draw_rect, border_radius=5)
+            pygame.draw.rect(surface, bd_color, node_draw_rect, bd_w, border_radius=5)
+            draw_light_sweep(surface, node_draw_rect, now + len(nid) * 0.05, bd_color, alpha=18 if hovered or selected else 8)
 
             node_old_clip = surface.get_clip()
-            surface.set_clip(rect)
+            surface.set_clip(node_draw_rect)
 
             if self.zoom >= 0.6:
                 label_lines = node["label"].split("\n")
                 line_h = font.get_height()
                 total_h = line_h * len(label_lines)
-                text_y = rect.centery - total_h // 2
-                max_label_w = max(1, rect.width - 8)
+                text_y = node_draw_rect.centery - total_h // 2
+                max_label_w = max(1, node_draw_rect.width - 8)
                 for line in label_lines:
                     fitted = line
                     while font.size(fitted)[0] > max_label_w and fitted:
@@ -375,18 +404,18 @@ class ResearchTreeView:
                     if fitted != line:
                         fitted = fitted[:-3] + "..." if len(fitted) > 3 else fitted
                     ls = font.render(fitted, True, label_c)
-                    surface.blit(ls, ls.get_rect(centerx=rect.centerx, top=text_y))
+                    surface.blit(ls, ls.get_rect(centerx=node_draw_rect.centerx, top=text_y))
                     text_y += line_h
 
-            if status not in ("researched", "researching") and rect.width >= 40:
+            if status not in ("researched", "researching") and node_draw_rect.width >= 40:
                 cost_txt = font.render(f"⚙ {node['cost']}", True, _C_NODE_AVAIL_LB)
-                if cost_txt.get_width() < rect.width:
-                    surface.blit(cost_txt, (rect.right - cost_txt.get_width() - 4, rect.bottom - cost_txt.get_height() - 2))
+                if cost_txt.get_width() < node_draw_rect.width:
+                    surface.blit(cost_txt, (node_draw_rect.right - cost_txt.get_width() - 4, node_draw_rect.bottom - cost_txt.get_height() - 2))
 
-            if status == "researched" and rect.width >= 40:
+            if status == "researched" and node_draw_rect.width >= 40:
                 tick = font.render("✓", True, _C_NODE_DONE_LB)
-                if tick.get_width() < rect.width:
-                    surface.blit(tick, (rect.right - tick.get_width() - 4, rect.bottom - tick.get_height() - 2))
+                if tick.get_width() < node_draw_rect.width:
+                    surface.blit(tick, (node_draw_rect.right - tick.get_width() - 4, node_draw_rect.bottom - tick.get_height() - 2))
 
             surface.set_clip(node_old_clip)
 
@@ -394,10 +423,10 @@ class ResearchTreeView:
                 node_data = self._get_node(nid)
                 total = max(1, node_data["cost"] // RESEARCH_RP_PER_TURN) if node_data else 1
                 progress = total - self._researching_turns_remaining
-                bar_w = rect.width - 8
+                bar_w = node_draw_rect.width - 8
                 bar_h = max(2, int(4 * self.zoom))
-                bar_x = rect.x + 4
-                bar_y = rect.bottom - bar_h - 4
+                bar_x = node_draw_rect.x + 4
+                bar_y = node_draw_rect.bottom - bar_h - 4
                 fill_w = int(bar_w * progress / total)
                 pygame.draw.rect(surface, (40, 40, 50), (bar_x, bar_y, bar_w, bar_h), border_radius=2)
                 if fill_w > 0:
@@ -417,6 +446,7 @@ class ResearchTreeView:
         tab_ids = list(self._categories.keys())
         if not tab_ids:
             return
+        now = pygame.time.get_ticks() / 1000.0
 
         tab_area_y = sh - _TAB_H
         tab_w = min(150, (sw - _PAD * 2) // len(tab_ids))
@@ -439,14 +469,17 @@ class ResearchTreeView:
                 bg = _C_TAB_HOVER
             else:
                 bg = _C_TAB_IDLE
+            draw_rect = scale_rect(tab_rect, 1.0 + (0.035 if is_hover or is_active else 0.0))
+            draw_soft_glow(surface, draw_rect, _C_TITLE, 0.34 if is_hover or is_active else 0.0, radius=5, rings=3)
 
-            pygame.draw.rect(surface, bg, tab_rect, border_radius=4)
-            pygame.draw.rect(surface, _C_TAB_BORDER, tab_rect, 1, border_radius=4)
+            pygame.draw.rect(surface, bg, draw_rect, border_radius=5)
+            pygame.draw.rect(surface, _C_TAB_BORDER, draw_rect, 1, border_radius=5)
+            draw_light_sweep(surface, draw_rect, now + i * 0.17, _C_TITLE, alpha=16 if is_hover or is_active else 7)
 
             cat_data = self._categories.get(tab_id, {})
             label = cat_data.get("label", tab_id)
             tab_surf = font.render(label, True, (200, 200, 210) if not is_active else (240, 240, 255))
-            surface.blit(tab_surf, tab_surf.get_rect(center=tab_rect.center))
+            surface.blit(tab_surf, tab_surf.get_rect(center=draw_rect.center))
 
     def _get_active_nodes(self) -> list[dict]:
         if not self._active_category_id:
@@ -518,8 +551,10 @@ class ResearchTreeView:
                 bendtwo = (end[0], mid_y)
 
                 linew = max(1, int(3 * self.zoom))
+                now = pygame.time.get_ticks() / 1000.0
+                live_line_color = mix_color(line_color, _C_TITLE, 0.22 * pulse(now, 2.0, end[0] * 0.01))
                 pygame.draw.lines(surface, (40, 50, 65), False, (start, bend, bendtwo, end), linew + 1)
-                pygame.draw.lines(surface, line_color, False, (start, bend, bendtwo, end), max(1, linew - 1))
+                pygame.draw.lines(surface, live_line_color, False, (start, bend, bendtwo, end), max(1, linew - 1))
 
     def _draw_tooltip(
         self,
